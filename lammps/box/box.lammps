@@ -1,0 +1,93 @@
+# pouring spheres into container box
+
+log             log_${DT}.lammps
+
+variable        K equal 1000000
+variable        GAMMA equal 100
+#variable        N_PART equal 50
+#variable        DT equal 0.00001
+variable        DUMP_INT equal ceil(0.001/v_DT)
+variable        T_END equal 5
+variable        N_STEPS equal ceil(v_T_END/v_DT)
+variable        MOVIE_DUMP_DT equal 0.01
+variable        MOVIE_DUMP_INT equal "ceil(v_MOVIE_DUMP_DT/v_DT)"
+
+
+# Extent of the container
+variable        BOX_EXT equal 3
+variable        BOX_EXT_ZHI equal 50
+# Extent of the simulation box
+variable        BLOCK_EXT equal "v_BOX_EXT+1"
+variable        BLOCK_EXT_ZHI equal "v_BOX_EXT_ZHI+1"
+
+
+#
+units           si
+atom_style      sphere
+boundary        f f f
+dimension	3
+comm_modify     vel yes
+
+region          box block -${BLOCK_EXT} ${BLOCK_EXT} -${BLOCK_EXT} ${BLOCK_EXT} -${BLOCK_EXT} ${BLOCK_EXT_ZHI} units box
+create_box      2 box
+
+pair_style      hybrid gran/hooke ${K} 0 ${GAMMA} NULL 1000 1
+pair_coeff      * * gran/hooke
+
+region          container block -${BOX_EXT} ${BOX_EXT} -${BOX_EXT} ${BOX_EXT} -${BOX_EXT} ${BOX_EXT_ZHI} units box
+fix             container all wall/gran/region hooke &
+                ${K} 0 ${GAMMA} NULL 1000 1 region container
+
+neighbor        0.3 bin
+neigh_modify    delay 0 every 1 check yes
+
+fix             2 all nve/sphere
+fix             3 all gravity 9.8 vector 0 0 -1
+
+#region          slab block -2 2 -2 2 -2 2 units box
+#fix             ins all pour ${N_PART} 2 4767548 vol 0.4 10 &
+                #diam one 1.0 region slab ignore
+read_data       box_init.data add merge
+
+timestep        ${DT}
+
+compute         1 all temp
+compute_modify  1 dynamic/dof yes
+
+compute         2 all temp/sphere
+compute_modify  2 dynamic/dof yes
+
+thermo          ${DUMP_INT}
+thermo_style    custom step atoms temp c_1 c_2 press
+thermo_modify   lost ignore
+compute_modify  thermo_temp dynamic/dof yes
+
+dump            dmpmov all movie ${MOVIE_DUMP_INT} box_${DT}.avi type type size 640 480
+#dump            2 all image 100 image.*.jpg type type &
+#                zoom 1.4 adiam 1.0 box no 0.0 axes yes 0.9 0.03
+#dump_modify     2 pad 5
+
+
+dump            dmp all custom ${DUMP_INT} dump_${DT}/box*.dump id x y z vx vy vz omegax omegay omegaz diameter mass
+
+run             ${N_STEPS}
+
+#region          container delete
+#variable        theta equal (step-5000)*(4.0*PI/5000)
+#region          container block -6 6 -6 6 -6 6 units box &
+#                rotate v_theta 0 0 0 0 0 1
+#run         5000
+#
+#region          container delete
+#region          container block -6 6 -6 6 -6 6 units box
+#run             5000
+#
+#region          container delete
+#variable        theta equal (step-15000)*(4.0*PI/5000)
+#region          container block -6 6 -6 6 -6 6 units box &
+#                rotate v_theta 0 0 0 1 1 1
+#run         5000
+#
+#region          container delete
+#region          container block -6 6 -6 6 -6 6 units box
+#run             5000

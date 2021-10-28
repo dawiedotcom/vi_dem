@@ -1,0 +1,89 @@
+# pouring spheres into container box
+
+variable        K equal 1000000
+variable        GAMMA equal 100
+variable        N_PART equal 60
+
+# Extent of the container
+variable        BOX_EXT equal 3
+variable        BOX_EXT_ZHI equal 50
+# Extent of the simulation box
+variable        BLOCK_EXT equal "v_BOX_EXT+1"
+variable        BLOCK_EXT_ZHI equal "v_BOX_EXT_ZHI+1"
+# Extent of the pour region
+variable        SLAB_EXT equal "v_BOX_EXT-1"
+variable        SLAB_EXT_ZHI equal "v_BOX_EXT_ZHI-1"
+variable        SLAB_EXT_ZLO equal "v_BOX_EXT_ZHI-10"
+
+variable        DT equal 0.00001
+variable        DUMP_INT equal 1000
+variable        T_END equal 2
+variable        T_END_SETTLE equal 1
+variable        N_STEPS equal ceil(v_T_END/v_DT)
+variable        N_STEPS_SETTLE equal ceil(v_T_END_SETTLE/v_DT)
+variable        MOVIE_DUMP_DT equal 0.01
+variable        MOVIE_DUMP_INT equal "ceil(v_MOVIE_DUMP_DT/v_DT)"
+
+
+#
+units           si
+atom_style      sphere
+boundary        f f f
+dimension	3
+comm_modify     vel yes
+
+region          box block -${BLOCK_EXT} ${BLOCK_EXT} -${BLOCK_EXT} ${BLOCK_EXT} -${BLOCK_EXT} ${BLOCK_EXT_ZHI} units box
+create_box      1 box
+
+pair_style      hybrid gran/hooke ${K} 0 ${GAMMA} NULL 1000 1
+pair_coeff      * * gran/hooke
+
+region          container block -${BOX_EXT} ${BOX_EXT} -${BOX_EXT} ${BOX_EXT} -${BOX_EXT} ${BOX_EXT_ZHI} units box
+fix             container all wall/gran/region hooke &
+                ${K} 0 ${GAMMA} NULL 1000 1 region container
+
+neighbor        0.3 bin
+neigh_modify    delay 0 every 1 check yes
+
+fix             2 all nve/sphere
+fix             3 all gravity 9.8 vector 0 0 -1
+
+region          slab block -${SLAB_EXT} ${SLAB_EXT} -${SLAB_EXT} ${SLAB_EXT} ${SLAB_EXT_ZLO} ${SLAB_EXT_ZHI} units box
+fix             ins all pour ${N_PART} 1 4767548 vol 0.5 60 &
+                diam one 1.0 region slab ignore
+
+timestep        ${DT}
+
+compute         1 all temp
+compute_modify  1 dynamic/dof yes
+
+compute         2 all temp/sphere
+compute_modify  2 dynamic/dof yes
+
+thermo          ${DUMP_INT}
+thermo_style    custom step atoms temp c_1 c_2 press
+thermo_modify   lost ignore
+compute_modify  thermo_temp dynamic/dof yes
+
+dump            dmpmov all movie ${MOVIE_DUMP_INT} movie_generate.avi type type size 640 480
+#dump            2 all image 100 image.*.jpg type t      ype &
+#                zoom 1.4 adiam 1.0 box no 0.0 axes yes 0.9 0.03
+#dump_modify     2 pad 5
+
+
+#dump            dmp all custom ${DUMP_INT} dump/box*.dump id x y z vx vy vz omegax omegay omegaz diameter mass
+
+variable         a loop 3
+label            loop
+
+run             ${N_STEPS}
+fix             ins all pour ${N_PART} 1 6754847 vol 0.5 60 &
+                diam one 1.0 region slab ignore
+
+next            a
+jump            box_generate.lammps loop
+
+
+run             ${N_STEPS_SETTLE}
+
+write_data      box_init.data
