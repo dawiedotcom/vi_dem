@@ -8,6 +8,7 @@ from icecream import (
     install
 )
 install()
+ic.configureOutput(outputFunction=print)
 
 sys.path.append('.')
 
@@ -108,7 +109,7 @@ def plot_trail(fig, x, z, trail_legend, particle_legend, label=None):
 
 
 def make_cache_filename(**kwargs):
-    return '{name}_{T}_{dt}_{k}_{gamma}.csv'.format(**kwargs)
+    return '{name}_{T}_{dt}_{k}_{gamma}_{N}.csv'.format(**kwargs)
 
 def is_cache_fresh(cache_filename, dump_filename):
     if not os.path.exists(cache_filename):
@@ -179,7 +180,7 @@ def calc_gran_temp(m, d, N_particles, data):
         data['T_zz']
     )
 
-def plot_lammps(dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
+def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
 
     dump_files = get_lammps_dump_files(dt, dump_folder)
     # Starting configuration
@@ -205,8 +206,9 @@ def plot_lammps(dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K,
         dt=dt,
         k=k,
         gamma=gamma,
+        N=N,
     )
-    is_lammps_cache_fresh = is_cache_fresh(lammps_cache_filename, dump_folder + dump_files[0])
+    is_lammps_cache_fresh = len(dump_files) > 0 and is_cache_fresh(lammps_cache_filename, dump_folder + dump_files[0])
 
     if os.path.exists(lammps_cache_filename):
         if is_lammps_cache_fresh:
@@ -305,10 +307,24 @@ def main():
     #d = 0.25
     g = 9.8
     d = 1.
+    #if '--d' in sys.argv:
+    #    d = float(sys.argv[sys.argv.index('--d') + 1])
+    ic(d)
+
+    N = 200
+    if '--N' in sys.argv:
+        N = int(sys.argv[sys.argv.index('--N') + 1])
+    
+
     L = 3
+    if N == 400:
+        L = 3.78
+    elif N == 800:
+        L = 4.74
+    ic(L)
+
     L_zhi = 50
     k = 1000000
-    dx = 0.05 * d
     rho = 1.000#*(2*np.sqrt(2))
     volume = 4./3. * np.pi * (d/2)**3
     m =  volume * rho
@@ -319,16 +335,19 @@ def main():
 
     dt = 0.0001
     if '--dt' in sys.argv:
-        dt = float(sys.argv[sys.argv.index('--dt')] + 1)
+        dt = float(sys.argv[sys.argv.index('--dt') + 1])
         
-    print('dt =', dt)
+    ic(dt)
     T_scale = np.pi/np.sqrt(2*k/m)
     print('dt/t_c =', dt/T_scale)
     if '--profile' in sys.argv:
         T = 1000 * dt #0.5
     else:
         T = 5.0
+        if '--T' in sys.argv:
+            T = float(sys.argv[sys.argv.index('--T') + 1])
         #T = 1000 * dt #0.5
+    ic(T)
 
     dt_dump = 0.001
     dump_step = int(dt_dump/dt+0.5)
@@ -366,19 +385,23 @@ def main():
     if not '--profile' in sys.argv:
         #for lammps_dt in [0.0005, 0.0001, 0.00001, 0.000001, 0.0000001]:
         for lammps_dt in lammps_dts:
-            dump_folder = 'lammps/box/dump_{dt:.10f}'.format(dt=lammps_dt).strip('0')+'/'
-            plot_lammps(lammps_dt, T_lammps, particles_to_plot, dump_folder, fig_pos_xy, fig_zt, fig_K, fig_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale)
+            dump_folder = 'lammps/box/dump_{N}_{dt:.10f}'.format(N=N, dt=lammps_dt).strip('0')+'/'
+            plot_lammps(N, d, lammps_dt, T_lammps, particles_to_plot, dump_folder, fig_pos_xy, fig_zt, fig_K, fig_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale)
 
-    dump_folder = 'lammps/box/dump_{dt:.10f}'.format(dt=dt).strip('0')+'/'
-    cache_filename = make_cache_filename(name='cache/box_particles', T=T, dt=dt, k=k, gamma=gamma)
+    dump_folder = 'lammps/box/dump_{N}_{dt:.10f}'.format(N=N, dt=dt).strip('0')+'/'
+    cache_filename = make_cache_filename(name='cache/box_particles', T=T, dt=dt, k=k, gamma=gamma, N=N)
     # Starting configuration
     dump_files = get_lammps_dump_files(dt, dump_folder)
-    if dump_files == []:
+
+    initial_config = 'lammps/box/box_generate_{N}.dump'.format(N=N)
+    ic(initial_config)
+    if not os.path.exists(initial_config):
         print('Could not load initial partile configuration from LAMMPS')
         exit(0)
-    data = load(dump_folder + dump_files[0])
+    data = load(initial_config)
 
     particles = setup_particles_from_lammps(data, k=k, gamma=gamma)
+
     nlist = NList(d/2)
     contact = HookianContact(particles, dt)
     N_particles = particles.xyz.shape[0]
@@ -390,7 +413,7 @@ def main():
     N_dump_steps = int(T/dt_dump)+1
     print('N_dump_steps:', N_dump_steps)
 
-    is_simulation_cache_fresh = is_cache_fresh(cache_filename, dump_folder + dump_files[0])
+    is_simulation_cache_fresh = is_cache_fresh(cache_filename, initial_config)
 
     if os.path.exists(cache_filename) and not '--no-cache' in sys.argv:
         print('Found box simulation cache: {0}'.format(cache_filename))

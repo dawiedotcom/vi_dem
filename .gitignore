@@ -27,7 +27,12 @@ log*liggghts
 log*lammps
 *.thermo
 ## Specific dump files to be included
-!box0.dump
+!box_generate_1.0.dump
+!box_generate_0.8.dump
+!box_generate_0.6.dump
+!box_generate_200.dump
+!box_generate_400.dump
+!box_generate_800.dump
 
 ### PYTHON
 
