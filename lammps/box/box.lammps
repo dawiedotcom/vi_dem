@@ -1,6 +1,6 @@
 # pouring spheres into container box
 
-log             log_${DT}.lammps
+log             log_${N_PART}_${DT}.lammps
 
 variable        K equal 1000000
 variable        GAMMA equal 100
@@ -14,7 +14,18 @@ variable        MOVIE_DUMP_INT equal "ceil(v_MOVIE_DUMP_DT/v_DT)"
 
 
 # Extent of the container
-variable        BOX_EXT equal 3
+#variable        BOX_EXT equal 3
+#variable        BOX_EXT equal 3
+if "${N_PART} == 200" then &
+   "variable        BOX_EXT equal 3" &
+elif "${N_PART} == 400" &
+   "variable        BOX_EXT equal 3.78" &
+elif "${N_PART} == 800" &
+   "variable        BOX_EXT equal 4.74" &
+else &
+   "print 'N_PART must be in {200, 400, 800}'" &
+   quit
+
 variable        BOX_EXT_ZHI equal 50
 # Extent of the simulation box
 variable        BLOCK_EXT equal "v_BOX_EXT+1"
@@ -47,7 +58,7 @@ fix             3 all gravity 9.8 vector 0 0 -1
 #region          slab block -2 2 -2 2 -2 2 units box
 #fix             ins all pour ${N_PART} 2 4767548 vol 0.4 10 &
                 #diam one 1.0 region slab ignore
-read_data       box_init.data add merge
+read_data       box_init_${N_PART}.data add merge
 
 timestep        ${DT}
 
@@ -62,13 +73,13 @@ thermo_style    custom step atoms temp c_1 c_2 press
 thermo_modify   lost ignore
 compute_modify  thermo_temp dynamic/dof yes
 
-dump            dmpmov all movie ${MOVIE_DUMP_INT} box_${DT}.avi type type size 640 480
+#dump            dmpmov all movie ${MOVIE_DUMP_INT} box_${DT}.avi type type size 640 480
 #dump            2 all image 100 image.*.jpg type type &
 #                zoom 1.4 adiam 1.0 box no 0.0 axes yes 0.9 0.03
 #dump_modify     2 pad 5
 
 
-dump            dmp all custom ${DUMP_INT} dump_${DT}/box*.dump id x y z vx vy vz omegax omegay omegaz diameter mass
+dump            dmp all custom ${DUMP_INT} dump_${N_PART}_${DT}/box*.dump id x y z vx vy vz omegax omegay omegaz diameter mass
 
 run             ${N_STEPS}
 

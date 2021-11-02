@@ -99,7 +99,7 @@ jump            box_generate.lammps loop
 
 run             ${N_STEPS_SETTLE}
 
-write_data      box_init.data
+write_data      box_init_${N_PART}.data
 
 dump            dmp all custom 1 box_generate_${N_PART}.dump id x y z vx vy vz omegax omegay omegaz diameter mass
 run             1
