@@ -232,7 +232,7 @@ class HookianContact(Potential):
 
     def __F_e_n(self, q_i, q_j, i, j, a, d_ij):
         # Normal elastic force
-        
+
         result = (-self.k * ((self.d[i]/2 + self.d[j]/2)/d_ij - 1) * (q_i[a] - q_j[a]))
         #if type(self) == HookianContact and (a == 0 or a == 1) and abs(result) > 1e-5:
         #    print(i, j, result, type(self))
@@ -352,18 +352,16 @@ class BondContact(HookianContact):
     '''
     Calculates the inter particle forces for the Bonded Particle Model described in...
     '''
-    def __init__(self, particles, dt):
+    def __init__(self, particles, dt, alpha=0):
         #Potential.__init__(self)
-        super(BondContact, self).__init__(particles, dt, alpha=0)
+        super(BondContact, self).__init__(particles, dt, alpha=alpha)
 
         self.particles = particles
         self.dt = dt
-        self.bonds = []
-        for i in range(particles.N):
-            self.bonds.append([])
-            for j in range(particles.N):
-                if i==j:
-                    continue
+        self.bonds = [[] for _ in range(particles.N)]
+        for i in range(particles.N-1):
+            #self.bonds.append([])
+            for j in range(i+1, particles.N):
 
                 d_ij_sq = ((particles.xyz[i, 0] - particles.xyz[j, 0])**2 +
                            (particles.xyz[i, 1] - particles.xyz[j, 1])**2 +
@@ -372,13 +370,15 @@ class BondContact(HookianContact):
                 if d_ij_sq < r_cut**2:
                     print('Bonded {0}-{1}'.format(i, j))
                     self.bonds[i].append(j)
+                    print('Bonded {0}-{1}'.format(j, i))
+                    self.bonds[j].append(i)
 
-        #print(self.bonds)
+        #ic(self.bonds)
 
     def calc_force_ij(self, q_i, q_j, i, j, a, d_ij):
         if not j in self.bonds[i]:
             return 0
-        force = HookianContact._calc_force_ij(self, q_i, q_j, i, j, a, d_ij)
+        force = super()._calc_force_ij(q_i, q_j, i, j, a, d_ij)
         ## TODO Check breaking
 
         return force
@@ -386,7 +386,7 @@ class BondContact(HookianContact):
     def calc_conservative_force_ij(self, q_i, q_j, i, j, a, d_ij):
         if not j in self.bonds[i]:
             return 0
-        force = HookianContact._calc_conservative_force_ij(self, q_i, q_j, i, j, a, d_ij)
+        force = super()._calc_conservative_force_ij(q_i, q_j, i, j, a, d_ij)
         ## TODO Check breaking
 
         return force
@@ -421,7 +421,7 @@ class SumContact(Potential):
         ])
         return result
 
-    
+
 def newton_step(dt, q, q0, p0, M_vector, contact_force, contact_stress, dq_alpha=1.0):
 
     #M = particles.gen_M_matrix/dt
@@ -465,7 +465,7 @@ def pf(f):
     return print_f[:, :2]
 
 
-def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-9, d_tol=1e-13, max_steps=200, walls=[], gravity=None, nlist=None, contact_law=None, dq_alpha=1.0):
+def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_steps=200, walls=[], gravity=None, nlist=None, contact_law=None, dq_alpha=1.0):
     '''
     Find the next position by Newton's method.
     '''
@@ -494,7 +494,9 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-9, d_tol=1e-13, max_ste
     step = 1
 
     prev_e = -1
-    while e/e0 > e_tol and step < max_steps:
+    #while e/e0 > e_tol and step < max_steps:
+    d = 1.0
+    while step < max_steps:
 
         ## Calculate forces with walls
         wall_force = np.zeros(q0_.shape)
@@ -526,6 +528,11 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-9, d_tol=1e-13, max_ste
         particles.xyz += dq_alpha * delta[:, :3]
         particles.rot += dq_alpha * delta[:, 3:]
 
+
+        if e == prev_e:
+            dq_alpha *= 0.5
+            ic(dq_alpha)
+        prev_e = e
         d = np.linalg.norm(delta)
 
         if step == 1:
@@ -535,14 +542,15 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-9, d_tol=1e-13, max_ste
                 #print('No force or displacement at first Newton iteration.')
                 break
 
-        if e/e0 < e_tol or d/d0 < d_tol:
+        if e/e0 < e_tol or d/d0 < d_tol or e < e_tol or d < d_tol:
+            #ic(dt, step, e/e0, d/d0, e, d)
             break
 
         step += 1
     #ic(step, e/e0, d/d0)
     #print('#steps =', step)
     if step == max_steps:
-        ic(step, e/e0, d/d0)
+        ic(step, e/e0, d/d0, e, d)
         print('Max steps reached')
     return e
 
@@ -557,7 +565,7 @@ def time_step(particles, dt, walls=[], gravity=np.array([0, 0, 0]), nlist=None, 
     if external_gen_force is None:
         external_gen_force = np.zeros(q0.shape)
     else:
-        external_gen_force = - external_gen_force 
+        external_gen_force = - external_gen_force
     external_gen_force[:, :3] += -gravity*m3
     #t_ext = np.zeros(particles.xyz.shape)
     external_gen_force = external_gen_force.flatten()
@@ -604,4 +612,3 @@ def time_step(particles, dt, walls=[], gravity=np.array([0, 0, 0]), nlist=None, 
 
     dr = particles.xyz - q0[:, :3]
     return dr
-

@@ -17,6 +17,7 @@ from vi_dem.particles import (
 )
 from vi_dem.variational_int import (
     HookianContact,
+    BondContact,
     time_step,
 )
 
@@ -36,6 +37,33 @@ def E_test_setup(d, k, m):
     v = np.zeros(particles.xyz.shape)
     v[0] = (1, 0, 0)
     v[1] = (-1, 0, 0)
+
+    particles.m = np.ones(particles.xyz.shape[0])
+    particles.d = np.ones(particles.xyz.shape[0])
+    particles.k = k
+
+    particles.m *= m
+    particles.m *= d
+    particles.p = np.zeros(v.shape) #* vstack(particles.m
+    for i in range(v.shape[0]):
+        particles.p[i] = v[i] * m
+    print('v =', particles.v)
+    print('m =', particles.m)
+
+    particles.updateM()
+    return particles
+
+def E_test_setup2(d, k, m):
+    particles = Particles()
+    N = 2
+    particles.xyz = np.zeros((N, 3))
+    particles.xyz[0] = (-d/2 - d/1000, 0, 0)
+    particles.xyz[1] = ( d/2 + d/1000, 0, 0)
+
+    particles.rot = np.zeros((N, 3))
+    particles.angular_mom = np.zeros((N, 3))
+
+    v = np.zeros(particles.xyz.shape)
 
     particles.m = np.ones(particles.xyz.shape[0])
     particles.d = np.ones(particles.xyz.shape[0])
@@ -76,6 +104,35 @@ def v_analytic(t, m, d, v, k, gamma):
         gamma*v/np.sqrt(delta) * np.sin(t_norm)
         -v * np.cos(t_norm)
     )
+
+def x_analytic2(t, m, d, v, k, gamma):
+    t_c = 1/m * np.sqrt(2*k*m - gamma**2)
+    x0 = d/1000
+    C1 = x0 #v/t_c
+    #C1 = m*v/(np.sqrt(2*k*m - gamma**2))
+    print('C1 =', C1)
+    omega = np.sqrt(k/(m/2))
+    xi = gamma/(np.sqrt(2*k*m))
+    return d/2 + C1 * np.exp(-t*gamma/(m)) * np.cos(t * t_c)
+
+def v_analytic2(t, m, d, v, k, gamma):
+    delta = 2*k*m - gamma**2
+    t_c = 1/m * np.sqrt(delta)
+    x0 = d/1000
+    C1 = x0
+    print('C1 =', C1)
+    omega = np.sqrt(k/(m/2))
+    xi = gamma/(np.sqrt(2*k*m))
+    #return (C1*gamma/(2*)m * np.exp(-gamma*t/(m)) * np.sin(t * omega * np.sqrt(1 - xi**2))
+    #        + omega*np.sqrt(1-xi**2)* C1 * np.exp(-t*gamma/(m)) * np.cos(t * omega * np.sqrt(1 - xi**2)))
+    #t_c = omega * np.sqrt(1-xi**2)
+    t_norm = t * t_c
+    return C1*t_c*np.exp(-gamma*t/(m)) * (
+        #gamma/np.sqrt(delta) * np.sin(t_norm)
+        -np.sin(t_norm)
+    )
+
+
 
 def draw_v(x, y, vx, vy):
     arrow_scale = 0.5
@@ -221,25 +278,39 @@ def main():
         #(100, 0.0, T_scale/1000),
         #(100, 0.0, T_scale/300),
 
-        (100, 0.0, T_scale/100),
-        (100, 0.0, T_scale/30),
-        (100, 0.0, T_scale/10),
-        (100, 0.0, T_scale/3),
+        (0, 0.0, T_scale/100),
+        (0, 0.0, T_scale/30),
+        (0, 0.0, T_scale/10),
+        (0, 0.0, T_scale/3),
     ]
 
-    params_list = [
-        (100, 0.0, T_scale2*dt)
-        for dt in
-        np.linspace(0.01, 2, 10)
-    ]
+    #dt1 = [T_scale/div for div in np.arange(60, 220, 20)]
+    dts = (
+        [T_scale2*dt_ for dt_ in np.linspace(0.01, 0.06, 5)] +
+        [T_scale2*dt_ for dt_ in np.linspace(0.06, 0.2, 10)] +
+        [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
+    )
+    dts.sort()
+    params_list = [(0, 0.0, dt_) for dt_ in dts]
+    #params_list = [
+    #    (0, 0.0, T_scale/div)
+    #    for div in
+    #    np.arange(20, 200, 20)
+    #]
+    #params_list = [
+    #    (0, 0.0, T_scale2*dt)
+    #    for dt in
+    #    #np.linspace(0.01, 1.5, 10)
+    #    #np.linspace(0.01, 0.8, 30)
+    #    np.linspace(0.01, 0.03, 11)
+    #]
     dts = [dt for (_, _, dt) in params_list]
     cols = alphas.copy()
-    cols.append('L')
     err_x_df = pd.DataFrame(0.0, columns=cols, index=dts)
     err_v_df = pd.DataFrame(0.0, columns=cols, index=dts)
     #dt_alpha = 1.0
     for i, (gamma_n, dy, dt) in enumerate(params_list):
-        print('dt =', dt)
+        ic(dt)
         T_scale = np.pi/np.sqrt(2*k/m)
         print('dt = T_scale/', T_scale/dt)
 
@@ -247,12 +318,12 @@ def main():
         #    break
 
         dx = np.sqrt((d/2)**2 - dy**2)
-        T_collision = -(pos0[1, 0] - dx)/(p0[1, 0]/m)
+        T_collision = 0 #-(pos0[1, 0] - dx)/(p0[1, 0]/m)
         ic('T_collision =', T_collision)
         # Number of time steps used in plotting the figure (based on the largest time step)
-        T = Ts[dy]
-        T_min = 0 #T_collision 
-        T_max = T_collision + T_scale
+        T = 20 * T_scale #Ts[dy]
+        T_min = 0 #T_collision
+        T_max = T_collision + T #T_scale
         print('T_min =', T_min)
         N_t_steps = int(T/dt + 1.5)
         ic(N_t_steps)
@@ -275,7 +346,8 @@ def main():
         print('dt*min_idx =', (dt*min_idx-T_collision)/T_scale)
         max_idx = int(T_max/dt+1.5)
         idx = np.arange(min_idx, max_idx)
-        t_plot = (ts[idx] - T_collision) /T_scale
+        #t_plot = (ts[idx] - T_collision) /T_scale
+        t_plot = np.zeros(N_t_steps)
         ic('N timesteps:',T_scale/dt)
 
         #if i == 0:
@@ -297,7 +369,8 @@ def main():
 
             # Setup the particle neighbor list
             nlist = NList(d/2)
-            contact = HookianContact(particles, dt)
+            #contact = HookianContact(particles, dt)
+            contact = BondContact(particles, dt, alpha=alpha)
 
             t = 0
             Es[0] = 1
@@ -316,9 +389,8 @@ def main():
             contact.alpha = alpha
 
 
-            L_hess = 1
 
-            while t <= T:
+            while t <= T+dt:
 
                 #ts[i] = t
                 #idx = np.where(np.abs(t - ts) < dt/2)[0]
@@ -327,8 +399,9 @@ def main():
                 # plotting time steps.
 
                 if j < Es.shape[0]:
-                    Es[j] = E_kinetic(particles)/E0
-                    Ers[j] = E_kinetic_rot(particles)/E0
+                    t_plot[j] = t/T_scale
+                    #Es[j] = E_kinetic(particles)/E0
+                    #Ers[j] = E_kinetic_rot(particles)/E0
                     omegaz[j] = particles.angular_mom[0, 2]/particles.mom_inertia[0]
                     #print(Ers[idx[0]], E_kinetic_rot(particles))
                     pos_x[j] = particles.xyz[0, 0]# - d/2
@@ -346,19 +419,18 @@ def main():
                     contact_law=contact,
                 )
 
-                if t < T_scale + dt/2 and t > T_scale - dt/2:
-                    _, contact_stress = contact.calc_force_and_stiffness(
-                        particles.gen_coords,
-                        particles.d,
-                        nlist,
-                        particles.gen_M_matrix,
-                        dt,
-                    )
-                    L_hess  =np.max(np.linalg.eig(-contact_stress.toarray())[0])
-                    ic(L_hess)
+                #if t < T_scale + dt/2 and t > T_scale - dt/2:
+                #    _, contact_stress = contact.calc_force_and_stiffness(
+                #        particles.gen_coords,
+                #        particles.d,
+                #        nlist,
+                #        particles.gen_M_matrix,
+                #        dt,
+                #    )
 
                 j += 1
                 t += dt
+                #ic(t - t_plot[j]*T_scale)
 
 
 
@@ -376,7 +448,7 @@ def main():
                 'First' if alpha == 0 else 'Second',
                )
             line_style = 'C{0}{1}'.format(
-                i,
+                min(i, 9),
                 '-' if alpha == 0.5 else '-.'
             )
             fig_f_x.plot(t_plot, f_x[idx], line_style, label=label)
@@ -395,7 +467,7 @@ def main():
 
                 t_compare_idx = np.where(t_plot > -dt/2)[0]
                 t_compare = t_plot[t_compare_idx]
-                
+
                 analytic_plotted.append(gamma_n)
                 label = r'Analytic $\gamma = {0}$, $\Delta y=0$'.format(gamma_n)
                 plot_settings = {
@@ -420,17 +492,19 @@ def main():
                     label=label,
                 )
 
+                label = r'{0} order $h \approx t_c/{1:.1f}$$'.format(
+                    'First' if alpha == 0.0 else 'Second',
+                    T_scale/dt,
+                )
                 fig_x_trunc_err.plot(t_compare,  np.abs(x_an - pos_x[t_compare_idx]), line_style, label=label)
                 fig_v_trunc_err.plot(t_compare,  np.abs(v_an - v_x[t_compare_idx]), line_style, label=label)
 
                 err = np.linalg.norm( x_an - pos_x[t_compare_idx] )
                 err_x_df[alpha][dt] = err
-                err_x_df['L'][dt] = L_hess
 
                 err = np.linalg.norm( v_an - v_x[t_compare_idx] )
                 err_v_df[alpha][dt] = err
-                err_v_df['L'][dt] = L_hess
-                
+
         #draw = []
         #for pos in particles.xyz:
         #    draw.append(r'\draw[] ({0}, {1}) circle ({2})'.format(
@@ -451,10 +525,6 @@ def main():
         #    out.write(tex)
 
 
-    ic(err_x_df)
-    ic(err_x_df['L'].to_numpy() * err_x_df.index.to_numpy())
-
-    Lh2 = err_x_df['L'].to_numpy() * err_x_df.index.to_numpy()**2
     h_comp = err_x_df.index.to_numpy() * np.sqrt(k/m)
     ic(h_comp)
 

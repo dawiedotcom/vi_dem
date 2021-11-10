@@ -35,8 +35,8 @@ def setup_particles_from_lammps(data, k=1e6, gamma=0):
     particles = Particles()
     particles.k = k
     particles.d = data['diameter'].to_numpy() #[1]
-    particles.gamma_n = gamma #* m/2
-    particles.gamma_t = gamma / 2 # * m/4
+    particles.gamma_n = gamma
+    particles.gamma_t = gamma / 2
 
     particles.xyz = np.zeros((N, 3))
     particles.rot = np.zeros((N, 3))
@@ -109,6 +109,7 @@ def plot_trail(fig, x, z, trail_legend, particle_legend, label=None):
 
 
 def make_cache_filename(**kwargs):
+    ic(kwargs)
     return '{name}_{T}_{dt}_{k}_{gamma}_{N}.csv'.format(**kwargs)
 
 def is_cache_fresh(cache_filename, dump_filename):
@@ -116,7 +117,7 @@ def is_cache_fresh(cache_filename, dump_filename):
         return False
     return os.path.getmtime(cache_filename) > os.path.getmtime(dump_filename)
 
-def get_lammps_dump_files(dt, dump_folder, sort_key=dump_file_timestep):
+def get_lammps_dump_files(dump_folder, sort_key=dump_file_timestep):
 
     ## Load lammps data
     print(dump_folder)
@@ -180,14 +181,29 @@ def calc_gran_temp(m, d, N_particles, data):
         data['T_zz']
     )
 
-def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
+def get_lammps_data(N_particles, dt, T, dump_folder, k, gamma):
 
-    dump_files = get_lammps_dump_files(dt, dump_folder)
+    dump_files = get_lammps_dump_files(dump_folder)
     # Starting configuration
     #data = load_lammps_dump('lammps/box/dump/' + dump_files[0])
     #data = data[1000]
     #data.sort_values('id', inplace=True)
-    if dump_files == []:
+    #ic(dump_files)
+    cache_dir = 'cache/box_lammps'
+    lammps_cache_filename = make_cache_filename(
+        name=cache_dir,
+        T=T,
+        dt=dt,
+        k=k,
+        gamma=gamma,
+        N=N_particles,
+    )
+
+    if dump_files == [] and not os.path.exists(lammps_cache_filename):
+        print('No LAMMPS dump files found (in {0}) and no cache file found ({1})'.format(
+            dump_folder,
+            lammps_cache_filename,
+        ))
         return
 
     T0 = dt * dump_file_timestep(dump_files[0])
@@ -197,18 +213,11 @@ def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, p
         for dump_file in dump_files
         if dump_file_timestep(dump_file) <= (T + T0)/dt + 0.5
     ]
-    N_particles = 0
+    #N_particles = N
     lammps_data = None
 
-    lammps_cache_filename = make_cache_filename(
-        name='cache/box_lammps',
-        T=T,
-        dt=dt,
-        k=k,
-        gamma=gamma,
-        N=N,
-    )
-    is_lammps_cache_fresh = len(dump_files) > 0 and is_cache_fresh(lammps_cache_filename, dump_folder + dump_files[0])
+
+    is_lammps_cache_fresh = len(dump_files) > 0 and is_cache_fresh(lammps_cache_filename, os.path.join(dump_folder, dump_files[0]))
 
     if os.path.exists(lammps_cache_filename):
         if is_lammps_cache_fresh:
@@ -217,18 +226,20 @@ def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, p
             print('Found stale LAMMPS cache: {0}'.format(lammps_cache_filename))
 
     if (os.path.exists(lammps_cache_filename) and not '--no-lammps-cache' in sys.argv and is_lammps_cache_fresh):
+        print('Loading lammps cache: ', lammps_cache_filename)
 
         lammps_data = pd.read_csv(lammps_cache_filename)
 
-        data = load(dump_folder + dump_files[0])
+        data = load(os.path.join(dump_folder, dump_files[0]))
         m = data['mass'].to_numpy()[0]
         d = data['diameter'].to_numpy()[0]
         N_particles = data.shape[0]
     else:
         #print(dump_files)
         for i, dump_file in enumerate(dump_files):
-            print('Loading: ', dump_folder+dump_file)
-            data = load(dump_folder + dump_file)
+            full_filename = os.path.join(dump_folder, dump_file)
+            print('Loading: ', full_filename)
+            data = load(full_filename)
 
             if lammps_data is None:
                 N_particles = data.shape[0]
@@ -252,6 +263,24 @@ def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, p
         d = data['diameter'].to_numpy()[0]
 
     calc_gran_temp(m, d, N_particles, lammps_data)
+    calc_total_kinetic_E(m, d, N_particles, lammps_data)
+
+    return lammps_data
+
+def plot_lammps(N_particles, m, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
+
+    lammps_data = get_lammps_data(
+        N_particles,
+        dt,
+        T,
+        dump_folder,
+        k,
+        gamma,
+    )
+
+    if lammps_data is None:
+        return
+
     plot_gran_temp.plot(
         lammps_data['t']*T_macro_scale,
         lammps_data['gran_temp']/v_scale,
@@ -259,8 +288,6 @@ def plot_lammps(N, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, p
         label='LAMMPS ($\Delta t = {0}$)'.format(dt)
     )
 
-
-    calc_total_kinetic_E(m, d, N_particles, lammps_data)
     plot_K.plot(
         lammps_data['t']*T_macro_scale,
         (lammps_data['K_lin'] + lammps_data['K_rot'])/(K_scale*N_particles),
@@ -314,7 +341,7 @@ def main():
     N = 200
     if '--N' in sys.argv:
         N = int(sys.argv[sys.argv.index('--N') + 1])
-    
+
 
     L = 3
     if N == 400:
@@ -330,13 +357,11 @@ def main():
     m =  volume * rho
 
     gamma = 100
-    #gamma_n = gamma * m
-    #gamma_t = gamma_n/2
 
     dt = 0.0001
     if '--dt' in sys.argv:
         dt = float(sys.argv[sys.argv.index('--dt') + 1])
-        
+
     ic(dt)
     T_scale = np.pi/np.sqrt(2*k/m)
     print('dt/t_c =', dt/T_scale)
@@ -380,18 +405,23 @@ def main():
 
 
     # Plot LAMMPS data
-    T_lammps = 5
-    lammps_dts = [0.0005, 0.0001]
+    T_lammps = 5.0
+    lammps_dts = [dt]
+    #lammps_dts = [0.0001, 0.00025, 0.0005]
     if not '--profile' in sys.argv:
         #for lammps_dt in [0.0005, 0.0001, 0.00001, 0.000001, 0.0000001]:
         for lammps_dt in lammps_dts:
             dump_folder = 'lammps/box/dump_{N}_{dt:.10f}'.format(N=N, dt=lammps_dt).strip('0')+'/'
-            plot_lammps(N, d, lammps_dt, T_lammps, particles_to_plot, dump_folder, fig_pos_xy, fig_zt, fig_K, fig_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale)
+            plot_lammps(N, m, d, lammps_dt, T_lammps, particles_to_plot, dump_folder, fig_pos_xy, fig_zt, fig_K, fig_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale)
+
+    if '--lammps-only' in sys.argv:
+        plt.show()
+        exit(0)
 
     dump_folder = 'lammps/box/dump_{N}_{dt:.10f}'.format(N=N, dt=dt).strip('0')+'/'
     cache_filename = make_cache_filename(name='cache/box_particles', T=T, dt=dt, k=k, gamma=gamma, N=N)
     # Starting configuration
-    dump_files = get_lammps_dump_files(dt, dump_folder)
+    #dump_files = get_lammps_dump_files(dump_folder)
 
     initial_config = 'lammps/box/box_generate_{N}.dump'.format(N=N)
     ic(initial_config)
