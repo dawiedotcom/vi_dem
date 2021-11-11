@@ -21,6 +21,11 @@ from vi_dem.variational_int import (
     time_step,
 )
 
+
+from impact import (
+    get_lammps_atom_one,
+    get_lammps_data,
+)
 from utils import *
 
 
@@ -53,103 +58,60 @@ def E_test_setup(d, k, m):
     particles.updateM()
     return particles
 
-def E_test_setup2(d, k, m):
-    particles = Particles()
-    N = 2
-    particles.xyz = np.zeros((N, 3))
-    particles.xyz[0] = (-d/2 - d/1000, 0, 0)
-    particles.xyz[1] = ( d/2 + d/1000, 0, 0)
-
-    particles.rot = np.zeros((N, 3))
-    particles.angular_mom = np.zeros((N, 3))
-
-    v = np.zeros(particles.xyz.shape)
-
-    particles.m = np.ones(particles.xyz.shape[0])
-    particles.d = np.ones(particles.xyz.shape[0])
-    particles.k = k
-
-    particles.m *= m
-    particles.m *= d
-    particles.p = np.zeros(v.shape) #* vstack(particles.m
-    for i in range(v.shape[0]):
-        particles.p[i] = v[i] * m
-    print('v =', particles.v)
-    print('m =', particles.m)
-
-    particles.updateM()
-    return particles
-
 def x_analytic(t, m, d, v, k, gamma):
     t_c = 1/m * np.sqrt(2*k*m - gamma**2)
     C1 = v/t_c
-    #C1 = m*v/(np.sqrt(2*k*m - gamma**2))
-    print('C1 =', C1)
-    omega = np.sqrt(k/(m/2))
-    xi = gamma/(np.sqrt(2*k*m))
     return d/2 - C1 * np.exp(-t*gamma/(m)) * np.sin(t * t_c)
 
 def v_analytic(t, m, d, v, k, gamma):
     delta = 2*k*m - gamma**2
     t_c = 1/m * np.sqrt(delta)
-    C1 = v/np.sqrt(delta)
-    print('C1 =', C1)
-    omega = np.sqrt(k/(m/2))
-    xi = gamma/(np.sqrt(2*k*m))
-    #return (C1*gamma/(2*)m * np.exp(-gamma*t/(m)) * np.sin(t * omega * np.sqrt(1 - xi**2))
-    #        + omega*np.sqrt(1-xi**2)* C1 * np.exp(-t*gamma/(m)) * np.cos(t * omega * np.sqrt(1 - xi**2)))
-    #t_c = omega * np.sqrt(1-xi**2)
     t_norm = t * t_c
     return np.exp(-gamma*t/(m)) * (
         gamma*v/np.sqrt(delta) * np.sin(t_norm)
         -v * np.cos(t_norm)
     )
 
-def x_analytic2(t, m, d, v, k, gamma):
-    t_c = 1/m * np.sqrt(2*k*m - gamma**2)
-    x0 = d/1000
-    C1 = x0 #v/t_c
-    #C1 = m*v/(np.sqrt(2*k*m - gamma**2))
-    print('C1 =', C1)
-    omega = np.sqrt(k/(m/2))
-    xi = gamma/(np.sqrt(2*k*m))
-    return d/2 + C1 * np.exp(-t*gamma/(m)) * np.cos(t * t_c)
+def plot_lammps_data(x_fig, err_x_fig, err_v_fig, dir_name, k, m, d, v0):
+    files = [fname
+        for fname in os.listdir(dir_name)
+        if re.match('atom_one.*\.dump', fname)
+    ]
+    ic(files)
+    lammps_dts = [
+        float(filename.split('_')[2])
+        for filename in files
+    ]
 
-def v_analytic2(t, m, d, v, k, gamma):
-    delta = 2*k*m - gamma**2
-    t_c = 1/m * np.sqrt(delta)
-    x0 = d/1000
-    C1 = x0
-    print('C1 =', C1)
-    omega = np.sqrt(k/(m/2))
-    xi = gamma/(np.sqrt(2*k*m))
-    #return (C1*gamma/(2*)m * np.exp(-gamma*t/(m)) * np.sin(t * omega * np.sqrt(1 - xi**2))
-    #        + omega*np.sqrt(1-xi**2)* C1 * np.exp(-t*gamma/(m)) * np.cos(t * omega * np.sqrt(1 - xi**2)))
-    #t_c = omega * np.sqrt(1-xi**2)
-    t_norm = t * t_c
-    return C1*t_c*np.exp(-gamma*t/(m)) * (
-        #gamma/np.sqrt(delta) * np.sin(t_norm)
-        -np.sin(t_norm)
-    )
+    err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=lammps_dts)
+
+    ic(dir_name)
+    T_scale = np.sqrt(k/m)
+    for dt, filename in zip(lammps_dts, files):
+        atom_one_data = check_and_load_lammps(os.path.join(dir_name, filename))
+        tt = dt * np.arange(atom_one_data['x'].size)
+
+        plt.figure(x_fig.fig.number)
+        plt.plot(tt, atom_one_data['x'].to_numpy())
+
+        x_an = -x_analytic(tt, m, d, v0, k, 0)
+        v_an = -v_analytic(tt, m, d, v0, k, 0)
+        #plt.plot(tt, x_an, 'k--')
+
+        err_data['x_err'][dt] = np.linalg.norm(x_an - atom_one_data['x'])
+        err_data['v_err'][dt] = np.linalg.norm(v_an - atom_one_data['vx'])
+
+    err_data.sort_index(inplace=True)
+    ic(err_data)
+    plt.figure(err_x_fig.number)
+    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['x_err'].to_numpy(), 'bo')
+    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['x_err'].to_numpy(), 'b-')
 
 
+    plt.figure(err_v_fig.number)
+    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['v_err'].to_numpy(), 'bo')
+    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['v_err'].to_numpy(), 'b-')
 
-def draw_v(x, y, vx, vy):
-    arrow_scale = 0.5
-    plt.arrow(
-        x, #pos_x[0, 0],
-        y, #pos_y[0, 0],
-        arrow_scale*vx, #*p0[0, 0],
-        arrow_scale*vy, #*p0[0, 1],
-        head_width=0.05,
-        head_length=0.025,
-    )
-
-def draw_circle(r, fig, x, y, linespec):
-    tt = np.linspace(0, 2*np.pi, 101)
-    xx = r * np.cos(tt)
-    yy = r * np.sin(tt)
-    fig.plot(x+xx, y+yy, linespec)
 
 def main():
 
@@ -164,7 +126,6 @@ def main():
     print('volume =', volume)
     m =  volume * rho
 
-
     print('m =', m)
     T = 0.04
 
@@ -178,7 +139,7 @@ def main():
     T_low = 1e-6
     geom_steps = 1
     N = int(np.log10(T_high/T_low)*geom_steps + 1)
-    dts = np.geomspace(T_low, T_high, N)
+    #dts = np.geomspace(T_low, T_high, N)
 
     def E_kinetic(particles):
         # Calculates the kinetic energy of the first particle
@@ -247,6 +208,8 @@ def main():
     E0 = E_kinetic(particles)
     print('E0 =', E0)
 
+
+
     #dt = 0.001
     Ts = {
         #0: 0.025, k==1e6
@@ -292,6 +255,7 @@ def main():
     )
     dts.sort()
     params_list = [(0, 0.0, dt_) for dt_ in dts]
+    ic(dts)
     #params_list = [
     #    (0, 0.0, T_scale/div)
     #    for div in
@@ -525,10 +489,15 @@ def main():
         #    out.write(tex)
 
 
+    fig_x_err_v_h = plt.figure()
+    fig_v_err_v_h = plt.figure()
+
+    plot_lammps_data(fig_pos_x, fig_x_err_v_h, fig_v_err_v_h, 'lammps/impact_analytic/dump', k, m, d, 1.0)
+
     h_comp = err_x_df.index.to_numpy() * np.sqrt(k/m)
     ic(h_comp)
 
-    fig_x_err_v_h = plt.figure()
+    plt.figure(fig_x_err_v_h.number)
     for alpha in alphas:
         #plt.loglog(err_x_df.index.to_numpy(), err_x_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
         #plt.loglog(err_x_df.index.to_numpy(), err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
@@ -541,7 +510,7 @@ def main():
     plt.xlabel('$h\sqrt{k/m}$')
     plt.ylabel('||x(t_n)-x_n||')
 
-    fig_v_err_v_h = plt.figure()
+    plt.figure(fig_v_err_v_h.number)
     for alpha in alphas:
         #plt.loglog(err_v_df.index.to_numpy(), err_v_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
         #plt.loglog(err_v_df.index.to_numpy(), err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
