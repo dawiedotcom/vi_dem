@@ -22,8 +22,12 @@ elif "${N_PART} == 400" &
    "variable        BOX_EXT equal 3.78" &
 elif "${N_PART} == 800" &
    "variable        BOX_EXT equal 4.74" &
+elif "${N_PART} == 100" &
+   "variable        BOX_EXT equal 2.38" &
+elif "${N_PART} == 50" &
+   "variable        BOX_EXT equal 1.89" &
 else &
-   "print 'N_PART must be in {200, 400, 800}'" &
+   "print 'N_PART must be in {100, 200, 400, 800}'" &
    quit
 
 variable        BOX_EXT_ZHI equal 50

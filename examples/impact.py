@@ -59,7 +59,7 @@ def get_lammps_data(dt, gamma_n=None, dy=None):
 def get_lammps_atom_one(dt, gamma_n=None, dy=None):
     filename = make_lammps_filename('lammps/impact_damped/atom_one', 'dump', dt, gamma_n=gamma_n, dy=dy)
     return check_and_load_lammps(filename)
-        
+
 
 def x_analytic(t, m, d, v, k, gamma):
     t_c = 1/m * np.sqrt(2*k*m - gamma**2)

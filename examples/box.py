@@ -181,7 +181,7 @@ def calc_gran_temp(m, d, N_particles, data):
         data['T_zz']
     )
 
-def get_lammps_data(N_particles, dt, T, dump_folder, k, gamma):
+def get_lammps_data(N_particles_nom, dt, T, dump_folder, k, gamma):
 
     dump_files = get_lammps_dump_files(dump_folder)
     # Starting configuration
@@ -196,7 +196,7 @@ def get_lammps_data(N_particles, dt, T, dump_folder, k, gamma):
         dt=dt,
         k=k,
         gamma=gamma,
-        N=N_particles,
+        N=N_particles_nom,
     )
 
     if dump_files == [] and not os.path.exists(lammps_cache_filename):
@@ -265,12 +265,12 @@ def get_lammps_data(N_particles, dt, T, dump_folder, k, gamma):
     calc_gran_temp(m, d, N_particles, lammps_data)
     calc_total_kinetic_E(m, d, N_particles, lammps_data)
 
-    return lammps_data
+    return lammps_data, N_particles
 
-def plot_lammps(N_particles, m, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
+def plot_lammps(N_particles_nom, m, d, dt, T, particles_to_plot, dump_folder, plot_xy, plot_zt, plot_K, plot_gran_temp, k, gamma, T_macro_scale, v_scale, K_scale):
 
-    lammps_data = get_lammps_data(
-        N_particles,
+    lammps_data, N_particles = get_lammps_data(
+        N_particles_nom,
         dt,
         T,
         dump_folder,
@@ -348,6 +348,10 @@ def main():
         L = 3.78
     elif N == 800:
         L = 4.74
+    elif N == 100:
+        L = 2.38
+    elif N == 50:
+        L = 1.89
     ic(L)
 
     L_zhi = 50
@@ -445,7 +449,7 @@ def main():
 
     is_simulation_cache_fresh = is_cache_fresh(cache_filename, initial_config)
 
-    if os.path.exists(cache_filename) and not '--no-cache' in sys.argv:
+    if os.path.exists(cache_filename) and not '--no-cache' in sys.argv and is_simulation_cache_fresh:
         print('Found box simulation cache: {0}'.format(cache_filename))
         print('dt =', dt)
         figure_data = pd.read_csv(cache_filename)
