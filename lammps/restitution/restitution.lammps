@@ -1,0 +1,68 @@
+## Initialization
+log             dump_verlet/log_${TIMESTEP}_${GAMMA_N}_${OMEGAZ}_${THETA}.lammps
+
+units           si
+atom_style      sphere
+boundary        f f f
+newton          off
+#communicate     single vel yes
+comm_modify     vel yes
+
+# Declare domain
+region          domain block -2.1 2.1 -2.1 2.1 -2.1 2.1 units box
+create_box      1 domain
+
+# Neighbor listing
+neighbor        0.003 bin
+neigh_modify    every 1 check no
+
+## Setup
+
+# Create the walls
+fix             walls all wall/gran hooke 1000000 0 ${GAMMA_N} NULL 1000 1 yplane -0.505 0.505
+#fix             walls all wall/gran hooke 1000000 0 ${GAMMA_N} NULL 1000 1 yplane -0.50 0.50
+# Create atoms
+create_atoms    1 single 0 0 0
+variable        VX equal "-1 * sin(v_THETA/180*3.14)"
+variable        VY equal "-1 * cos(v_THETA/180*3.14)"
+set             atom 1 vx ${VX}
+set             atom 1 vy ${VY}
+set             atom 1 omega 0 0 ${OMEGAZ}
+set             atom * density 1.000
+
+group           all id 1
+
+# Define the physics
+#pair_style      gran model hertz tangential history rolling_friction cdt
+pair_style       gran/hooke 1000000 0 ${GAMMA_N} NULL 1000 1
+pair_coeff      * *
+
+# Computes
+#compute          contacts all pair/gran/local pos force
+
+# Dump
+dump            dmp all custom 1 dump_verlet/lammps_${TIMESTEP}_${GAMMA_N}_${OMEGAZ}_${THETA}.dump id x y vx vy fx fy omegax omegaz tqz diameter mass
+#dump            dmpmov all movie 1000 movie.avi type type size 640 480
+
+## Detailed Settings
+
+# Integrator
+fix             integrate all nve/sphere
+
+# Time step
+timestep        ${TIMESTEP}
+
+# Thermo dynamic output settings
+thermo_style    custom step cpuremain atoms ke cpu
+thermo          1
+thermo_modify   norm no lost ignore
+
+
+## Execution
+variable        N_COLLISIONS equal "180.0"
+variable        K            equal "1000000"
+variable        M            equal "0.5235987755982988"
+variable        T_SCALE equal "PI / sqrt(2*v_K/v_M)"
+variable        T_END equal "v_N_COLLISIONS * v_T_SCALE"
+variable        N_steps equal ceil(v_T_END/v_TIMESTEP)
+run             ${N_steps}

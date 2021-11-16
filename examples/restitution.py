@@ -40,7 +40,7 @@ def restitution_test_setup(d, k, m):
 
     particles.rot = np.zeros((N, 3))
     particles.angular_mom = np.zeros((N, 3))
-    particles.is_rep = np.zeros(N, np.bool)
+    particles.is_rep = np.zeros(N, bool)
 
     particles.m = m * np.ones(N)
     particles.p = v * particles.m
@@ -57,6 +57,186 @@ def get_lammps_data(dt, gamma_n=None, omegaz=None, theta=None):
 def get_lammps_atom_one(dt, gamma_n=None, omegaz=None, theta=None):
     filename = make_lammps_filename('lammps/restitution/atom_one', 'dump', dt, gamma_n=gamma_n, dy=omegaz, theta=theta)
     return check_and_load_lammps(filename)
+
+
+def append_lammps_pot_e(lmp_atom_one_data, part_props, walls=[]):
+   lmp_atom_one_data['PotEng'] = np.zeros(lmp_atom_one_data['x'].shape)
+   for wall in walls:
+       lmp_xyz = np.array([lmp_atom_one_data['x'],
+                           lmp_atom_one_data['y'],
+                           np.zeros(lmp_atom_one_data['x'].shape)]).transpose()
+       dist_to = wall.dist_to(lmp_xyz)
+       idx = np.where(part_props.d/2 - dist_to > 0)[0]
+       lmp_atom_one_data['PotEng'][idx] += 0.5*part_props.k*(part_props.d/2 - dist_to[idx])**2
+
+
+
+def append_lammps_kin_e(lmp_atom_one_data, part_props):
+    lmp_atom_one_data['KinEngL'] = 0.5*part_props.m*(
+        lmp_atom_one_data['vx']**2 +
+        lmp_atom_one_data['vy']**2)
+    #lmp_atom_one_data['momL'] = m*np.sqrt(
+    #    lmp_atom_one_data['vx']**2 +
+    #    lmp_atom_one_data['vy']**2)
+    lmp_atom_one_data['KinEngR'] = 0.5*part_props.I*(
+        lmp_atom_one_data['omegax']**2 +
+        #lmp_atom_one_data['omegay']**2 +
+        lmp_atom_one_data['omegaz']**2)
+    lmp_atom_one_data['KinEng'] = (
+        lmp_atom_one_data['KinEngL'] +
+        lmp_atom_one_data['KinEngR']
+    )
+
+
+
+def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color='b', label='LAMMPS', dts_only=None, walls=[]):
+    files = [fname
+        for fname in os.listdir(dir_name)
+        if re.match('atom_one.*\.dump', fname)
+    ]
+    lammps_dts = [
+        float(filename.split('_')[2])
+        for filename in files
+    ]
+
+    columns = ['E_err']
+    if dts_only is None:
+        err_data = pd.DataFrame(0.0, columns=columns, index=lammps_dts)
+    else:
+        err_data = pd.DataFrame(0.0, columns=columns, index=dts_only)
+
+    T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
+    T_scale = np.pi*T_scale2/np.sqrt(2)
+    for dt, filename in zip(lammps_dts, files):
+        if not dts_only is None and not np.any(np.abs(np.array(dts_only) - dt) < 1e-6):
+            print('LAMMPS: Skipping ', filename)
+            continue
+
+        atom_one_data = check_and_load_lammps(os.path.join(dir_name, filename))
+
+        append_lammps_kin_e(atom_one_data, particle_properties)
+        append_lammps_pot_e(atom_one_data, particle_properties, walls=walls)
+
+        atom_one_data['Eng'] = atom_one_data['KinEng'] + atom_one_data['PotEng']
+
+        tt = dt * np.arange(atom_one_data['x'].size)
+
+        lammps_E_err = atom_one_data['Eng']/atom_one_data['Eng'][0] - 1
+        E_label = '{0}: h/t_c={1}'.format(label, dt/T_scale)
+        plt.figure(e_fig.number)
+        plt.plot(tt/T_scale, lammps_E_err, '--', label=E_label)
+
+
+        #x_an = -x_analytic(tt, particle_properties, v0)
+        #v_an = -v_analytic(tt, particle_properties, v0)
+        ##plt.plot(tt, x_an, 'k--')
+        err_data['E_err'][dt] = np.linalg.norm(lammps_E_err)
+
+
+    ic(err_data)
+
+    err_data.sort_index(inplace=True)
+    #ic(err_data)
+    plt.figure(err_E_fig.number)
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['E_err'].to_numpy(), '{0}o'.format(color))
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['E_err'].to_numpy(), '{0}-'.format(color), label=label)
+
+
+def plot_lammps():
+
+    lmp_data = get_lammps_data(dt, gamma_n=gamma, omegaz=omegaz, theta=theta)
+    lmp_atom_one_data = get_lammps_atom_one(dt, gamma_n=gamma, omegaz=omegaz, theta=theta)
+    if not lmp_data is None and not lmp_atom_one_data is None:
+        lmp_data['t'] = dt * lmp_data['Step']
+        lmp_atom_one_data['t'] = lmp_data['t']
+
+        lmp_atom_one_data['KinEngL'] = 0.5*m*(
+            lmp_atom_one_data['vx']**2 +
+            lmp_atom_one_data['vy']**2)
+        #lmp_atom_one_data['momL'] = m*np.sqrt(
+        #    lmp_atom_one_data['vx']**2 +
+        #    lmp_atom_one_data['vy']**2)
+        lmp_atom_one_data['KinEngR'] = 0.5*mom_inertia*(
+            lmp_atom_one_data['omegax']**2 +
+            #lmp_atom_one_data['omegay']**2 +
+            lmp_atom_one_data['omegaz']**2)
+        lmp_atom_one_data['KinEng'] = (
+            lmp_atom_one_data['KinEngL'] +
+            lmp_atom_one_data['KinEngR']
+        )
+
+        #lmp_atom_one_data['PotEng'] = 0.5 * k * (lmp_atom_one_data['y']**2)
+        lmp_atom_one_data['PotEng'] = np.zeros(lmp_atom_one_data['x'].shape)
+        for wall in walls:
+            lmp_xyz = np.array([lmp_atom_one_data['x'],
+                                lmp_atom_one_data['y'],
+                                np.zeros(lmp_atom_one_data['x'].shape)]).transpose()
+            print('lmp_xyz.shap =', lmp_xyz.shape)
+            dist_to = wall.dist_to(lmp_xyz)
+            idx = np.where(d/2 - dist_to > 0)[0]
+            print('idx.shape =', idx.shape)
+            lmp_atom_one_data['PotEng'][idx] += 0.5*k*(d/2 - dist_to[idx])**2
+
+        #print(lmp_data)
+
+        label = r'LAMMPS ($\omega_z={0}$, $\gamma_n={1}$, $\theta={2}$)'.format(
+            omegaz,
+            gamma,
+            theta)
+        fig_pos_y.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            lmp_atom_one_data['y'][min_idx:max_idx],
+            'C{0}--'.format(i),
+            label=label)
+
+        fig_pos_xy.plot(
+            lmp_atom_one_data['x'][min_idx:max_idx],
+            lmp_atom_one_data['y'][min_idx:max_idx],
+            'C{0}--'.format(i),
+            label=label)
+
+        fig_EkinL.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            lmp_atom_one_data['KinEngL'][min_idx:max_idx]/lmp_atom_one_data['KinEng'][0],
+            'C{0}--'.format(i),
+            label=label)
+
+
+        e_kin_an = 0.5*m*v_analytic(lmp_atom_one_data['t'][min_idx:max_idx], m, d, p0[0, 1]/m, k, gamma*m/2)**2
+        fig_Ekin.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            (lmp_atom_one_data['KinEng'][min_idx:max_idx]-e_kin_an)/lmp_atom_one_data['KinEng'][0],
+            'C{0}--'.format(i),
+            label=label)
+
+        e_pot_an = 0.5*k*x_analytic(lmp_atom_one_data['t'][min_idx:max_idx], m, d, p0[0, 1]/m, k, gamma*m/2)**2
+        fig_V.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            (lmp_atom_one_data['PotEng'][min_idx:max_idx]-e_pot_an)/lmp_atom_one_data['KinEng'][0],
+            'C{0}--'.format(i),
+            label=label)
+
+
+        fig_Etot.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            (lmp_atom_one_data['KinEng'][min_idx:max_idx] +
+             lmp_atom_one_data['PotEng'][min_idx:max_idx])/lmp_atom_one_data['KinEng'][0] -1,
+            'C{0}--'.format(i),
+            label=label)
+
+        fig_mom.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            (m*lmp_atom_one_data['vx'][min_idx:max_idx]),
+            'C{0}--'.format(2*i),
+            label=label)
+
+
+        fig_omegaz.plot(
+            lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
+            lmp_atom_one_data['omegaz'][min_idx:max_idx],
+            'C{0}--'.format(i),
+            label=label)
+
 
 def x_analytic(t, m, d, v, k, gamma):
     t_c = 1/m * np.sqrt(k*m - gamma**2)
@@ -76,14 +256,133 @@ def v_analytic(t, m, d, v, k, gamma):
         -v * np.cos(t_norm)
     )
 
+
+def E_kinetic_lin(particles):
+    return 0.5 * np.sum(np.sum((particles.p)**2, axis=1)/particles.m[:])
+
+def E_kinetic_rot(particles):
+    return 0.5 * np.sum(np.sum((particles.angular_mom)**2, axis=1)/particles.mom_inertia[:])
+
+
+@CacheMyDataFrame('cache/restitution/run_simulation')
+def run_simulation(dt, props, alpha, T, particles=None, walls=[]):
+
+    T_scale = np.pi/np.sqrt(2*props.k/props.m)
+    #N_t_steps = int((T_max - T_min)/dt)+1
+    N_t_steps = round(T/dt)
+    #ts = np.linspace(T_min, T_max, N_t_steps)
+    columns = [
+        't_plot',
+        'Ekin',
+        'EkinL',
+        'EkinR',
+        'Epot',
+        'Etot',
+        'pos_x',
+        'pos_y',
+        'f_x',
+    ]
+        
+    #ts = np.zeros(N_t_steps)
+    #Ekin = np.zeros(N_t_steps)
+    #EkinL = np.zeros(N_t_steps)
+    #EkinR = np.zeros(N_t_steps)
+    #Epot = np.zeros(N_t_steps)
+    #sim_omegas = np.zeros(N_t_steps)
+    #pos_y = np.zeros(N_t_steps)
+    #pos_x = np.zeros(N_t_steps)
+    #f_x = np.zeros(N_t_steps)
+    #data['t'] = ts
+    #min_idx = int(T_min/dt)
+    #max_idx = int(T_max/dt)
+
+
+    data = pd.DataFrame(0.0, index=np.arange(N_t_steps), columns=columns)
+
+    t = 0
+    #Es[0] = 1
+    #sim_omegas[0] = omegaz
+    #pos_y[0] = particles.xyz[0, 1]
+    #pos_x[0] = particles.xyz[0, 0]
+    wall_nlist = WallNList(props.d/2, walls)
+    contact = HookianContact(particles, dt, alpha=alpha)
+    nlist = NList(props.d/2)
+    dr = np.zeros(particles.xyz.shape)
+    #j=0
+    #while t <= T+10*dt:
+    for j in range(N_t_steps):
+
+        if j%1000 == 0:
+            ic(j/N_t_steps, t)
+        #ts[i] = t
+        #idx = np.where(np.abs(t - ts) < dt/2)[0]
+        #if np.any(idx):
+        #    # Save the kinetic energy for plotting if we are at a one of the
+        #    # plotting time steps.
+        #    Es[idx[0]] = E_kinetic(particles)/E0
+        #    pos_x[idx[0]] = particles.xyz[0, 0]
+        #    pos_y[idx[0]] = particles.xyz[0, 1]
+        #    sim_omegas[idx[0]] = particles.angular_v[0, 2]
+        #if t >= T_min and t <= T_max:
+        #if j >= min_idx and j <= max_idx:
+        #    j_ = j-min_idx
+        #    ts[j_] = t
+        #    EkinL[j_] = E_kinetic_lin(particles)
+        #    EkinR[j_] = E_kinetic_rot(particles)
+        #    Ekin[j_] = (E_kinetic_lin(particles) + E_kinetic_rot(particles))
+        #    pos_x[j_] = particles.xyz[0, 0]
+        #    pos_y[j_] = particles.xyz[0, 1]
+        #    #Epot[j_] = 0.5*k*pos_y[j]**2
+        #    for wall in walls:
+        #        dist_to = wall.dist_to(particles.xyz)[0]
+        #        if d/2-dist_to > 0:
+        #            Epot[j_] += 0.5*k*(d/2-dist_to)**2
+
+        #    sim_omegas[j_] = particles.angular_v[0, 2]
+        data['t_plot'][j] = t/T_scale
+        data['pos_x'][j] = particles.xyz[0, 0]
+        data['pos_y'][j] = particles.xyz[0, 1]
+        data['EkinL'][j] = E_kinetic_lin(particles)
+        data['EkinR'][j] = E_kinetic_rot(particles)
+        for wall in walls:
+            dist_to = wall.dist_to(particles.xyz)[0]
+            if props.d/2-dist_to > 0:
+                data['Epot'][j] += 0.5*props.k*(props.d/2-dist_to)**2
+                #data['f_x'][j] += props.k*(props.d/2-dist_to)
+
+        nlist.time_step(particles, dr)
+        wall_nlist.time_step(particles, dr)
+        # Run the simulation for one time step
+        dr = time_step(
+            particles,
+            dt,
+            walls=walls,
+            contact_law=contact,
+            nlist=nlist,
+        )
+
+        t += dt
+        #j += 1
+
+    data['Ekin'] = data['EkinL'] + data['EkinR']
+    data['Etot'] = data['Epot'] + data['Ekin']
+
+    return data
+
+
 def main():
 
     filename = 'figures/restitution.dat'
-    #d = 0.25
-    d = 1.
     L = 1.01
+    particle_properties = NewParticleProperties(
+        d=1.0,
+        k=1000000,
+        rho=1.0,
+        gamma=0,
+    )
+
+    d = 1.
     k = 1000000
-    dx = 0.05 * d
     rho = 1.000#*(2*np.sqrt(2))
     volume = 4./3. * np.pi * (d/2)**3
     m =  volume * rho
@@ -101,15 +400,17 @@ def main():
     def fround(t, dt=.00001):
         return int(t/dt)*dt
 
-    T_scale = np.pi/np.sqrt(2*k/m)
+    #T_scale = np.pi/np.sqrt(2*particle_properties.k/particle_properties.m)
+    T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
+    T_scale = np.pi*T_scale2/np.sqrt(2)
     T_free = (L-d)/1 # v will be set to 1 at t=0
-    T = fround(1800 * (T_scale ))#0.4
+    T = fround(180 * (T_scale ))#0.4
     print('T =', T)
     print('N_collisions=', (T)/(T_scale + T_free))
 
     walls = [
-        Wall(np.array([0, -L/2, 0]), np.array([0, 1, 0]), k, gamma * m, gamma * m/2),
-        Wall(np.array([0, L/2, 0]), np.array([0, -1, 0]), k, gamma * m, gamma * m/2),
+        Wall(np.array([0, -L/2, 0]), np.array([0, 1, 0]), particle_properties.k, 0, 0),
+        Wall(np.array([0, L/2, 0]), np.array([0, -1, 0]), particle_properties.k, 0, 0),
     ]
 
     ## Figure setup
@@ -120,15 +421,10 @@ def main():
     T_max = fround(1700*(T_scale)) #T
     T_high = 1e-4
     T_low = 1e-6
-    geom_steps = 1
-    N = int(np.log10(T_high/T_low)*geom_steps + 1)
-    dts = np.geomspace(T_low, T_high, N)
+    #geom_steps = 1
+    #N = int(np.log10(T_high/T_low)*geom_steps + 1)
+    #dts = np.geomspace(T_low, T_high, N)
 
-    def E_kinetic_lin(particles):
-        return 0.5 * np.sum(np.sum((particles.p)**2, axis=1)/particles.m[:])
-
-    def E_kinetic_rot(particles):
-        return 0.5 * np.sum(np.sum((particles.angular_mom)**2, axis=1)/particles.mom_inertia[:])
 
     # Figure filename
     filename = 'figures/impact.dat'
@@ -140,6 +436,7 @@ def main():
     # The initial position and velocity is saved and restored for each
     # time step
     particles = restitution_test_setup(d, k, m)
+    particles0 = restitution_test_setup(d, k, m)
 
     pos0 = particles.xyz.copy()
     p0 = particles.p.copy()
@@ -172,142 +469,56 @@ def main():
     print('E0 =', E0)
 
     #dt = 0.00001
+    dts = (
+        [T_scale2*dt_ for dt_ in np.geomspace(0.01, 0.2, 15)] +
+        [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
+    )
+
+    if '--show-dts' in sys.argv:
+        print("TIMESTEPS='{0}'".format(' '.join([str(dt) for dt in dts])))
+        exit(0)
+    #dts = dts[0:3]
+    alphas = [0.0, 0.5]
     params_list = [
-        #(0.00001, 0, 0, 0),
-        (0.00005, 0, 0, 0, 0.5),
-        (0.00001, 0, 0, 0, 0.5),
-        #(0.00005, 0, 0, 0, 0),
-        #(10, 0, 0),
-        #(10, 0, 0),
-        #(30, 3.14, 0),
-        #(30, 0, 10.),
-        #(30, 3.14, 10.),
-        #(g, omega)
-        #for g in [10]
-        ##for y in [0, 0.1, 0.3]
-        #for omega in [0, 3.14]
+        (dt, 0.0, 0.0, 0.0, alpha)
+        for dt in dts
+        for alpha in alphas
     ]
+    err_E_df = pd.DataFrame(0.0, columns=alphas, index=dts)
+    #params_list = [
+    #    (0.00005, 0, 0, 0, 0.5),
+    #    (0.00005, 0, 0, 0, 0.0),
+    #    #(0.00001, 0, 0, 0, 0.5),
+    #    #(0.00001, 0, 0, 0, 0.0),
+    #]
     for i, (dt, gamma, omegaz, theta, alpha) in enumerate(params_list):
 
         print('dt = t_c/',T_scale/dt)
 
         # Number of time steps used in plotting the figure (based on the largest time step)
-        N_t_steps = int((T_max - T_min)/dt)+1
-        ts = np.linspace(T_min, T_max, N_t_steps)
-        Ekin = np.zeros(N_t_steps)
-        EkinL = np.zeros(N_t_steps)
-        EkinR = np.zeros(N_t_steps)
-        Epot = np.zeros(N_t_steps)
-        sim_omegas = np.zeros(N_t_steps)
-        pos_y = np.zeros(N_t_steps)
-        pos_x = np.zeros(N_t_steps)
-        f_x = np.zeros(N_t_steps)
-        #data['t'] = ts
-        min_idx = int(T_min/dt)
-        max_idx = int(T_max/dt)
-
-        lmp_data = get_lammps_data(dt, gamma_n=gamma, omegaz=omegaz, theta=theta)
-        lmp_atom_one_data = get_lammps_atom_one(dt, gamma_n=gamma, omegaz=omegaz, theta=theta)
-        if not lmp_data is None and not lmp_atom_one_data is None:
-            lmp_data['t'] = dt * lmp_data['Step']
-            lmp_atom_one_data['t'] = lmp_data['t']
-
-            lmp_atom_one_data['KinEngL'] = 0.5*m*(
-                lmp_atom_one_data['vx']**2 +
-                lmp_atom_one_data['vy']**2)
-            #lmp_atom_one_data['momL'] = m*np.sqrt(
-            #    lmp_atom_one_data['vx']**2 +
-            #    lmp_atom_one_data['vy']**2)
-            lmp_atom_one_data['KinEngR'] = 0.5*mom_inertia*(
-                lmp_atom_one_data['omegax']**2 +
-                #lmp_atom_one_data['omegay']**2 +
-                lmp_atom_one_data['omegaz']**2)
-            lmp_atom_one_data['KinEng'] = (
-                lmp_atom_one_data['KinEngL'] +
-                lmp_atom_one_data['KinEngR']
-            )
-
-            #lmp_atom_one_data['PotEng'] = 0.5 * k * (lmp_atom_one_data['y']**2)
-            lmp_atom_one_data['PotEng'] = np.zeros(lmp_atom_one_data['x'].shape)
-            for wall in walls:
-                lmp_xyz = np.array([lmp_atom_one_data['x'],
-                                    lmp_atom_one_data['y'],
-                                    np.zeros(lmp_atom_one_data['x'].shape)]).transpose()
-                print('lmp_xyz.shap =', lmp_xyz.shape)
-                dist_to = wall.dist_to(lmp_xyz)
-                idx = np.where(d/2 - dist_to > 0)[0]
-                print('idx.shape =', idx.shape)
-                lmp_atom_one_data['PotEng'][idx] += 0.5*k*(d/2 - dist_to[idx])**2
-            #print(lmp_data)
-
-            label = r'LAMMPS ($\omega_z={0}$, $\gamma_n={1}$, $\theta={2}$)'.format(
-                omegaz,
-                gamma,
-                theta)
-            fig_pos_y.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                lmp_atom_one_data['y'][min_idx:max_idx],
-                'C{0}--'.format(i),
-                label=label)
-
-            fig_pos_xy.plot(
-                lmp_atom_one_data['x'][min_idx:max_idx],
-                lmp_atom_one_data['y'][min_idx:max_idx],
-                'C{0}--'.format(i),
-                label=label)
-
-            fig_EkinL.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                lmp_atom_one_data['KinEngL'][min_idx:max_idx]/lmp_atom_one_data['KinEng'][0],
-                'C{0}--'.format(i),
-                label=label)
-
-
-            e_kin_an = 0.5*m*v_analytic(lmp_atom_one_data['t'][min_idx:max_idx], m, d, p0[0, 1]/m, k, gamma*m/2)**2
-            fig_Ekin.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                (lmp_atom_one_data['KinEng'][min_idx:max_idx]-e_kin_an)/lmp_atom_one_data['KinEng'][0],
-                'C{0}--'.format(i),
-                label=label)
-
-            e_pot_an = 0.5*k*x_analytic(lmp_atom_one_data['t'][min_idx:max_idx], m, d, p0[0, 1]/m, k, gamma*m/2)**2
-            fig_V.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                (lmp_atom_one_data['PotEng'][min_idx:max_idx]-e_pot_an)/lmp_atom_one_data['KinEng'][0],
-                'C{0}--'.format(i),
-                label=label)
-
-
-            fig_Etot.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                (lmp_atom_one_data['KinEng'][min_idx:max_idx] +
-                 lmp_atom_one_data['PotEng'][min_idx:max_idx])/lmp_atom_one_data['KinEng'][0] -1,
-                'C{0}--'.format(i),
-                label=label)
-
-            fig_mom.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                (m*lmp_atom_one_data['vx'][min_idx:max_idx]),
-                'C{0}--'.format(2*i),
-                label=label)
-
-
-            fig_omegaz.plot(
-                lmp_atom_one_data['t'][min_idx:max_idx]/T_scale,
-                lmp_atom_one_data['omegaz'][min_idx:max_idx],
-                'C{0}--'.format(i),
-                label=label)
-
+        #N_t_steps = int((T_max - T_min)/dt)+1
+        ##ts = np.linspace(T_min, T_max, N_t_steps)
+        #ts = np.zeros(N_t_steps)
+        #Ekin = np.zeros(N_t_steps)
+        #EkinL = np.zeros(N_t_steps)
+        #EkinR = np.zeros(N_t_steps)
+        #Epot = np.zeros(N_t_steps)
+        #sim_omegas = np.zeros(N_t_steps)
+        #pos_y = np.zeros(N_t_steps)
+        #pos_x = np.zeros(N_t_steps)
+        #f_x = np.zeros(N_t_steps)
+        ##data['t'] = ts
+        #min_idx = int(T_min/dt)
+        #max_idx = int(T_max/dt)
 
         # Restore the initial particle setup
-        particles.xyz = pos0.copy()
+        particles.xyz = particles0.xyz.copy()
         p = p0[0, 1]
-        particles.p = p0.copy()
-        print('p0 =', p0)
+        particles.p = particles0.p.copy()
         particles.p[0, 0] = p * np.sin(theta/180*3.14)
         particles.p[0, 1] = p * np.cos(theta/180*3.14)
-        particles.rot = rot0.copy()
-        particles.angular_mom = angular_mom0.copy()
+        particles.rot = particles0.rot.copy()
+        particles.angular_mom = particles0.angular_mom.copy()
 
         particles.gamma_n = gamma * m/2
         particles.gamma_t = particles.gamma_n/2
@@ -316,9 +527,9 @@ def main():
             wall.alpha = alpha
             wall.gamma_n = gamma * m
             wall.gamma_t = gamma * m/2
-        wall_nlist = WallNList(d/2, walls)
-        contact = HookianContact(particles, dt, alpha=alpha)
-        nlist = NList(d/2)
+        #wall_nlist = WallNList(d/2, walls)
+        #contact = HookianContact(particles, dt, alpha=alpha)
+        #nlist = NList(d/2)
 
         particles.angular_mom[0, 2] = omegaz * particles.mom_inertia[0]
         print('omega(0) =')
@@ -326,49 +537,15 @@ def main():
 
         E0 = E_kinetic_lin(particles) + E_kinetic_rot(particles)
 
-        t = 0
-        #Es[0] = 1
-        #sim_omegas[0] = omegaz
-        #pos_y[0] = particles.xyz[0, 1]
-        #pos_x[0] = particles.xyz[0, 0]
-        dr = np.zeros(pos0.shape)
-        j=0
-        while t <= T+10*dt:
-
-            #ts[i] = t
-            #idx = np.where(np.abs(t - ts) < dt/2)[0]
-            #if np.any(idx):
-            #    # Save the kinetic energy for plotting if we are at a one of the
-            #    # plotting time steps.
-            #    Es[idx[0]] = E_kinetic(particles)/E0
-            #    pos_x[idx[0]] = particles.xyz[0, 0]
-            #    pos_y[idx[0]] = particles.xyz[0, 1]
-            #    sim_omegas[idx[0]] = particles.angular_v[0, 2]
-            #if t >= T_min and t <= T_max:
-            if j >= min_idx and j <= max_idx:
-                j_ = j-min_idx
-                EkinL[j_] = E_kinetic_lin(particles)
-                EkinR[j_] = E_kinetic_rot(particles)
-                Ekin[j_] = (E_kinetic_lin(particles) + E_kinetic_rot(particles))
-                pos_x[j_] = particles.xyz[0, 0]
-                pos_y[j_] = particles.xyz[0, 1]
-                #Epot[j_] = 0.5*k*pos_y[j]**2
-                for wall in walls:
-                    dist_to = wall.dist_to(particles.xyz)[0]
-                    if d/2-dist_to > 0:
-                        Epot[j_] += 0.5*k*(d/2-dist_to)**2
-
-                sim_omegas[j_] = particles.angular_v[0, 2]
-
-            nlist.time_step(particles, dr)
-            wall_nlist.time_step(particles, dr)
-            # Run the simulation for one time step
-            dr = time_step(particles, dt, walls=walls, contact_law=contact, nlist=nlist,)
-
-            t += dt
-            j += 1
-
-
+        # TODO: run_simulation
+        sim_data = run_simulation(
+            dt,
+            particle_properties,
+            alpha,
+            T,
+            particles=particles,
+            walls=walls,
+        )
 
         # Save the energy values to data buffer.
         #dt_key = '{0:f}'.format(dt)
@@ -380,52 +557,92 @@ def main():
         print('v(T) =')
         print(particles.v)
         ## Display
-        label = r'Var. Int. ($\omega_z = {0}$ s, $\gamma_n={1}$, $\theta={2}$, $\alpha={3}$)'.format(
-            omegaz,
-            gamma,
-            theta,
+        #label = r'Var. Int. ($\omega_z = {0}$ s, $\gamma_n={1}$, $\theta={2}$, $\alpha={3}$)'.format(
+        #    omegaz,
+        #    gamma,
+        #    theta,
+        #    '0' if alpha == 0 else '1/2',
+        #)
+        label = r'Var. Int. ($h={0}$, $\alpha={1}$)'.format(
+            dt,
             '0' if alpha == 0 else '1/2',
         )
-        fig_EkinL.plot(ts/T_scale, EkinL/E0, 'C{0}-'.format(i), label=label)
+        fig_EkinL.plot(
+            sim_data['t_plot'],
+            sim_data['EkinL']/E0,
+            'C{0}-'.format(min(i, 9)),
+            label=label,
+        )
         #fig_Ekin.plot(ts/T_scale, Ekin/E0, 'C{0}-'.format(i), label=label)
-        e_kin_an = 0.5*m*v_analytic(ts, m, d, p0[0, 1]/m, k, gamma*m/2)**2
-        e_pot_an = 0.5*k*x_analytic(ts, m, d, p0[0, 1]/m, k, gamma*m/2)**2
-        fig_Ekin.plot(ts/T_scale, (Ekin - e_kin_an)/E0, 'C{0}-'.format(i), label=label)
-        fig_Etot.plot(ts/T_scale, (Ekin+Epot)/E0-1, 'C{0}-'.format(i), label=label)
-        fig_V.plot(ts/T_scale, (Epot - e_pot_an)/E0, 'C{0}-'.format(i), label=label)
-        fig_pos_y.plot(ts/T_scale, pos_y, 'C{0}-'.format(i), label=label)
-        fig_pos_xy.plot(pos_x, pos_y, 'C{0}-'.format(i), label=label)
-        fig_omegaz.plot(ts/T_scale, sim_omegas, 'C{0}-'.format(i), label=label)
+        #e_kin_an = 0.5*m*v_analytic(ts, m, d, p0[0, 1]/m, k, gamma*m/2)**2
+        #e_pot_an = 0.5*k*x_analytic(ts, m, d, p0[0, 1]/m, k, gamma*m/2)**2
+        #fig_Ekin.plot(ts/T_scale, (Ekin - e_kin_an)/E0, 'C{0}-'.format(i), label=label)
+        #idx = round(175*T_scale/dt)
+        E_err = sim_data['Etot']/E0-1
+        fig_Etot.plot(
+            sim_data['t_plot'],
+            E_err,
+            'C{0}-'.format(min(i, 9)),
+            label=label,
+        )
+        #fig_V.plot(ts/T_scale, (Epot - e_pot_an)/E0, 'C{0}-'.format(i), label=label)
+        #fig_pos_y.plot(ts/T_scale, pos_y, 'C{0}-'.format(i), label=label)
+        #fig_pos_xy.plot(pos_x, pos_y, 'C{0}-'.format(i), label=label)
+        #fig_omegaz.plot(ts/T_scale, sim_omegas, 'C{0}-'.format(i), label=label)
+
+        ## T = fround(180 * (T_scale ))#0.4
+        #err_E_df[alpha][dt] = np.sum(E_err)
+        err_E_df[alpha][dt] = np.linalg.norm(E_err)
+
+        ### Plot the analytic solutions
+        #if show_analytic and omegaz == 0 and not gamma in analytic_plotted:
+        #    analytic_plotted.append(gamma)
+        #    label = r'Analytic $\gamma = {0}$'.format(gamma)
+        #    plot_settings = {
+        #        'label': label,
+        #    }
+        #    #ts_analytic = np.linspace(0, t_collision, 201)
+        #    #tt = np.linspace(0, 1, 1001)
+        #    steps = int(T/dt)+1
+        #    tt = np.linspace(0, T+dt, steps)
+        #    idx = np.where((tt >= T_min) & (tt <= T_max))[0]
+        #    #x_an = x_analytic(t_plot*T_scale, m, 1, 1, k, gamma_n*m/2)-d/2
+
+        #    v0 = p0[0, 1]/m
+        #    x_an = x_analytic(tt, m, d, v0, k, gamma*m/2)[idx]
+        #    v_an = v_analytic(tt, m, d, v0, k, gamma*m/2)[idx]
+        #    fig_pos_y.plot(tt[idx]/T_scale, x_an, 'k-', **plot_settings)
+
+        #    #fig_EkinL.plot(tt[idx]/T_scale, v_an**2 / v0**2 , 'k-', **plot_settings)
+
+        #    #fig_V.plot(tt[idx]/T_scale, (0.5 * k * x_an**2) / (0.5 * m * v0**2) , 'k-', **plot_settings)
+
+        #    fig_Etot.plot(tt[idx]/T_scale, (0.5 * k * x_an**2 + 0.5 * m * v_an**2) / (0.5 * m * v0**2) -1, 'k-', **plot_settings)
 
 
-        ## Plot the analytic solutions
-        if show_analytic and omegaz == 0 and not gamma in analytic_plotted:
-            analytic_plotted.append(gamma)
-            label = r'Analytic $\gamma = {0}$'.format(gamma)
-            plot_settings = {
-                'label': label,
-            }
-            #ts_analytic = np.linspace(0, t_collision, 201)
-            #tt = np.linspace(0, 1, 1001)
-            steps = int(T/dt)+1
-            tt = np.linspace(0, T+dt, steps)
-            idx = np.where((tt >= T_min) & (tt <= T_max))[0]
-            #x_an = x_analytic(t_plot*T_scale, m, 1, 1, k, gamma_n*m/2)-d/2
+    err_E = plt.figure()
+    for alpha in alphas:
+        line = '--' if alpha == 0.0 else '-'
+        mark = '+' if alpha == 0.0 else 'o'
+        label = 'VI ({0} order)'.format('First' if alpha == 0.0 else 'Second')
+        plt.semilogy(dts/T_scale2, err_E_df[alpha], 'k'+mark, label=label)
+        plt.semilogy(dts/T_scale2, err_E_df[alpha], 'k'+line)
 
-            v0 = p0[0, 1]/m
-            x_an = x_analytic(tt, m, d, v0, k, gamma*m/2)[idx]
-            v_an = v_analytic(tt, m, d, v0, k, gamma*m/2)[idx]
-            fig_pos_y.plot(tt[idx]/T_scale, x_an, 'k-', **plot_settings)
+    plot_lammps_err_data(
+        fig_Etot.fig,
+        err_E,
+        'lammps/restitution/dump_verlet',
+        particle_properties,
+        walls=walls,
+        dts_only=dts,
+    )
 
-            #fig_EkinL.plot(tt[idx]/T_scale, v_an**2 / v0**2 , 'k-', **plot_settings)
-
-            #fig_V.plot(tt[idx]/T_scale, (0.5 * k * x_an**2) / (0.5 * m * v0**2) , 'k-', **plot_settings)
-
-            fig_Etot.plot(tt[idx]/T_scale, (0.5 * k * x_an**2 + 0.5 * m * v_an**2) / (0.5 * m * v0**2) -1, 'k-', **plot_settings)
-
-
+    plt.xlabel('$h\sqrt{k/m}$')
+    plt.ylabel('$|E_t(t_n)/E(0) - 1|$')
+    plt.legend(loc='best')
+    
     plt.figure(fig_Etot.fig.number)
-    _, _, ymax, ymin = plt.axis()
+    #_, _, ymax, ymin = plt.axis()
     #for i_bar in range(int(T_min/T_scale), int(T_max/T_scale)+1):
     #    fig_Etot.plot(
     #        [i_bar, i_bar],
