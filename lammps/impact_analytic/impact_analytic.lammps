@@ -6,7 +6,7 @@ print "T_SCALE = ${T_SCALE}"
 variable        T_END        equal "v_N_COLLISIONS * v_T_SCALE"
 
 ## Initialization
-log             dump/log_${TIMESTEP}_${GAMMA_N}.log
+log             dump_${RUN_STYLE}/log_${TIMESTEP}_${GAMMA_N}.log
 
 units           si
 atom_style      sphere
@@ -51,7 +51,8 @@ pair_coeff      * *
 
 # Dump
 #dump            dmp all custom 1 lammps_${TIMESTEP}_${GAMMA_N}.dump id x vx fx diameter mass
-dump            dmp all custom 1 dump/lammps_${TIMESTEP}_${GAMMA_N}.dump id x vx vy fx fy omegaz tqz diameter mass
+dump            dmp all custom 1 dump_${RUN_STYLE}/lammps_${TIMESTEP}_${GAMMA_N}.dump id x vx vy fx fy omegaz tqz diameter mass
+dump_modify     dmp format float %.15g
 #dump            dmpmov all movie 1000 movie.avi type type size 640 480
 
 ## Detailed Settings
@@ -61,6 +62,17 @@ fix             integrate all nve/sphere
 
 # Time step
 timestep        ${TIMESTEP}
+
+
+# Integrator selection
+if "${RUN_STYLE} == verlet" then &
+   "run_style verlet" &
+elif "${RUN_STYLE} == respa" &
+   "run_style respa 4 2 2 2 bond 1 dihedral 2 pair 3 kspace 4" &
+else &
+   "print 'Unknown RUN_STYLE: ${RUN_STYLE}'" &
+   quit
+ 
 
 # Thermo dynamic output settings
 thermo_style    custom step cpuremain atoms ke cpu

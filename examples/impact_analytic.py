@@ -2,6 +2,7 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from collections import namedtuple
 
 from icecream import (
     ic,
@@ -29,384 +30,246 @@ from impact import (
 from utils import *
 
 
-def E_test_setup(d, k, m):
+def E_test_setup(props, v0):
     particles = Particles()
     N = 2
     particles.xyz = np.zeros((N, 3))
-    particles.xyz[0] = (-d/2, 0, 0)
-    particles.xyz[1] = ( d/2, 0, 0)
+    particles.xyz[0] = (-props.d/2, 0, 0)
+    particles.xyz[1] = ( props.d/2, 0, 0)
 
     particles.rot = np.zeros((N, 3))
     particles.angular_mom = np.zeros((N, 3))
 
     v = np.zeros(particles.xyz.shape)
-    v[0] = (1, 0, 0)
-    v[1] = (-1, 0, 0)
+    v[0] = (v0, 0, 0)
+    v[1] = (-v0, 0, 0)
 
     particles.m = np.ones(particles.xyz.shape[0])
     particles.d = np.ones(particles.xyz.shape[0])
-    particles.k = k
+    particles.k = props.k
 
-    particles.m *= m
-    particles.m *= d
+    particles.m *= props.m
     particles.p = np.zeros(v.shape) #* vstack(particles.m
     for i in range(v.shape[0]):
-        particles.p[i] = v[i] * m
+        particles.p[i] = v[i] * props.m
     print('v =', particles.v)
     print('m =', particles.m)
 
     particles.updateM()
     return particles
 
-def x_analytic(t, m, d, v, k, gamma):
-    t_c = 1/m * np.sqrt(2*k*m - gamma**2)
-    C1 = v/t_c
-    return d/2 - C1 * np.exp(-t*gamma/(m)) * np.sin(t * t_c)
+def x_analytic(t, props, v0):
+    gamma = props.gamma * props.m / 2
+    t_c = 1/props.m * np.sqrt(2*props.k*props.m - gamma**2)
+    C1 = v0/t_c
+    return props.d/2 - C1 * np.exp(-t*gamma/(props.m)) * np.sin(t * t_c)
 
-def v_analytic(t, m, d, v, k, gamma):
-    delta = 2*k*m - gamma**2
-    t_c = 1/m * np.sqrt(delta)
+def v_analytic(t, props, v0):
+    gamma = props.gamma * props.m / 2
+    delta = 2*props.k*props.m - gamma**2
+    t_c = 1/props.m * np.sqrt(delta)
     t_norm = t * t_c
-    return np.exp(-gamma*t/(m)) * (
-        gamma*v/np.sqrt(delta) * np.sin(t_norm)
-        -v * np.cos(t_norm)
+    return np.exp(-gamma*t/(props.m)) * (
+        gamma*v0/np.sqrt(delta) * np.sin(t_norm)
+        -v0 * np.cos(t_norm)
     )
 
-def plot_lammps_data(x_fig, err_x_fig, err_v_fig, dir_name, k, m, d, v0):
+def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_properties, v0, color='b', label='LAMMPS', dts_only=None):
     files = [fname
         for fname in os.listdir(dir_name)
         if re.match('atom_one.*\.dump', fname)
     ]
-    ic(files)
     lammps_dts = [
         float(filename.split('_')[2])
         for filename in files
     ]
 
-    err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=lammps_dts)
+    if dts_only is None:
+        err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=lammps_dts)
+    else:
+        err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=dts_only)
 
-    ic(dir_name)
-    T_scale = np.sqrt(k/m)
+    T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
+    T_scale = np.pi*T_scale2/np.sqrt(2)
     for dt, filename in zip(lammps_dts, files):
+        if not dts_only is None and not np.any(np.abs(np.array(dts_only) - dt) < 1e-6):
+            print('LAMMPS: Skipping ', filename)
+            continue
+
         atom_one_data = check_and_load_lammps(os.path.join(dir_name, filename))
         tt = dt * np.arange(atom_one_data['x'].size)
 
+        pos_vel_label = '{0}: h/t_c={1}'.format(label, dt/T_scale)
         plt.figure(x_fig.fig.number)
-        plt.plot(tt, atom_one_data['x'].to_numpy())
+        plt.plot(tt/T_scale, atom_one_data['x'].to_numpy(), '--', label=pos_vel_label)
 
-        x_an = -x_analytic(tt, m, d, v0, k, 0)
-        v_an = -v_analytic(tt, m, d, v0, k, 0)
+        plt.figure(v_fig.fig.number)
+        plt.plot(tt/T_scale, atom_one_data['vx'].to_numpy(), '--', label=pos_vel_label)
+
+        x_an = -x_analytic(tt, particle_properties, v0)
+        v_an = -v_analytic(tt, particle_properties, v0)
         #plt.plot(tt, x_an, 'k--')
 
         err_data['x_err'][dt] = np.linalg.norm(x_an - atom_one_data['x'])
         err_data['v_err'][dt] = np.linalg.norm(v_an - atom_one_data['vx'])
 
     err_data.sort_index(inplace=True)
-    ic(err_data)
+    #ic(err_data)
     plt.figure(err_x_fig.number)
-    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['x_err'].to_numpy(), 'bo')
-    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['x_err'].to_numpy(), 'b-')
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), '{0}o'.format(color))
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), '{0}-'.format(color), label=label)
 
 
     plt.figure(err_v_fig.number)
-    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['v_err'].to_numpy(), 'bo')
-    plt.semilogy(err_data.index.to_numpy()*T_scale, err_data['v_err'].to_numpy(), 'b-')
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), '{0}o'.format(color))
+    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), '{0}-'.format(color), label=label)
 
+
+def E_kinetic(particles):
+    # Calculates the kinetic energy of the first particle
+    return 0.5 * particles.m[0] * np.sum(particles.v[0, :] **2)
+def E_kinetic_rot(particles):
+    return 0.5 * particles.mom_inertia[0] * np.sum(particles.angular_v[0, :]**2)
+
+
+@CacheMyDataFrame('cache/impact_analytic/run_simulation')
+def run_simulation(dt, particle_properties, alpha, T, particles=None):
+    columns = [
+        't',
+        'pos_x',
+        'v_x'
+    ]
+    N_t_steps = round(T/dt)
+    index = np.arange(N_t_steps)
+    data = pd.DataFrame(0.0, index=index, columns=columns)
+
+    # Setup the particle neighbor list
+    nlist = NList(particle_properties.d/2)
+    #contact = HookianContact(particles, dt)
+    contact = BondContact(particles, dt, alpha=alpha)
+
+    t = 0
+    j = 0
+    dr = np.zeros(particles.xyz.shape)
+
+    T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
+    T_scale = np.pi*T_scale2/np.sqrt(2)
+
+    while t <= T+dt:
+
+        if j < N_t_steps:
+            data['t'][j] = t/T_scale
+            data['pos_x'][j] = particles.xyz[0, 0]
+            data['v_x'][j] = particles.v[0, 0]
+
+        nlist.time_step(particles, dr)
+        # Run the simulation for one time step
+        dr = time_step(
+            particles,
+            dt,
+            nlist=nlist,
+            contact_law=contact,
+        )
+
+        j += 1
+        t += dt
+
+    return data
+    
 
 def main():
 
-    filename = 'figures/impact.dat'
-    #d = 0.25
-    d = 1.
-    L = 4
-    k = 1000000
-    dx = 0.05 * d
-    rho = 1.000#*(2*np.sqrt(2))
-    volume = 4./3. * np.pi * (d/2)**3
-    print('volume =', volume)
-    m =  volume * rho
-
-    print('m =', m)
-    T = 0.04
+    particle_properties = NewParticleProperties(
+        d=1.0,
+        k=1000000,
+        rho=1.0,
+        gamma=0,
+    )
+    v0 = 1.0
 
     ## Figure setup
     show_analytic = True
     analytic_plotted = []
-    T_collision = 0.0 #0.02
-    T_min = 0 #0.0195
-    T_max = T #0.022
-    T_high = 1e-4
-    T_low = 1e-6
-    geom_steps = 1
-    N = int(np.log10(T_high/T_low)*geom_steps + 1)
-    #dts = np.geomspace(T_low, T_high, N)
-
-    def E_kinetic(particles):
-        # Calculates the kinetic energy of the first particle
-        return 0.5 * particles.m[0] * np.sum(particles.v[0, :] **2)
-    def E_kinetic_rot(particles):
-        return 0.5 * particles.mom_inertia[0] * np.sum(particles.angular_v[0, :]**2)
-
-    # Figure filename
-    filename = 'figures/impact.dat'
-    # Figure data
-    data = pd.DataFrame()
 
     #snapshot = Template('figures/dem_E_vs_time_snapshot.tex_template')
 
     # The initial position and velocity is saved and restored for each
     # time step
-    dy = 0.0
-    particles = E_test_setup(d, k, m)
-    pos0 = particles.xyz.copy()
-    p0 = particles.p.copy()
-    rot0 = particles.rot.copy()
-    angular_mom0 = particles.angular_mom.copy()
-    print(pos0)
-    print(p0)
+    particles = E_test_setup(particle_properties, v0)
+    particles0 = E_test_setup(particle_properties, v0)
 
     t_label = '$t/t_c$'
     fig_pos_x = Figure(t_label, 'Position, x component', show=True)
-    fig_trajectory = Figure('x', 'y', show=False)
-    fig_f_x = Figure(t_label, 'Inter particle force, x component', show=False)
     fig_v_x = Figure(t_label, 'Linear velocity, x', show=True)
-    fig_v_y = Figure(t_label, 'Linear velocity, y', show=False)
-    fname_suffix = ''
-    if '--small-dt' in sys.argv:
-        fname_suffix = '_smdt'
-    if '--analytic' in sys.argv:
-        fname_suffix = '_analytic'
+    #fname_suffix = ''
+    #if '--small-dt' in sys.argv:
+    #    fname_suffix = '_smdt'
+    #if '--analytic' in sys.argv:
+    #    fname_suffix = '_analytic'
 
-    fig_Es = Figure(
-        t_label,
-        '$K_L(t)/K_L(0)$',
-        dat_filename='figures/impact_K_lin%s_{0}.dat' % (fname_suffix),
-        template_filename='figures/impact.tex_template',
-        tikz_filename='figures/impact_K_lin%s.tex' % (fname_suffix),
-        show=False,
-    )
-    fig_Ers = Figure(
-        t_label, '$K_R(t)/K_L(0)$',
-        dat_filename='figures/impact_K_rot%s_{0}.dat'% (fname_suffix),
-        template_filename='figures/impact.tex_template',
-        tikz_filename='figures/impact_K_rot%s.tex'% (fname_suffix),
-        show=False,
-    )
-    #fig_err_v_h = Figure(
-    #    t_label, '$h$',
-    #    dat_filename='figures/impact_analytic_err_v_h_{0}.dat',
-    #    #template_filename='figures/impact.tex_template',
-    #    tikz_filename='figures/impact_analytic_err_v_h.tex',
-    #    show=True,
+    #fig_Es = Figure(
+    #    t_label,
+    #    '$K_L(t)/K_L(0)$',
+    #    dat_filename='figures/impact_K_lin%s_{0}.dat' % (fname_suffix),
+    #    template_filename='figures/impact.tex_template',
+    #    tikz_filename='figures/impact_K_lin%s.tex' % (fname_suffix),
+    #    show=False,
+    #)
+    #fig_Ers = Figure(
+    #    t_label, '$K_R(t)/K_L(0)$',
+    #    dat_filename='figures/impact_K_rot%s_{0}.dat'% (fname_suffix),
+    #    template_filename='figures/impact.tex_template',
+    #    tikz_filename='figures/impact_K_rot%s.tex'% (fname_suffix),
+    #    show=False,
     #)
 
-    fig_Etotal = Figure(t_label, 'Total kinetic Energy ($(K_L + K_R)/K(0)$)', show=False)
-    fig_omega = Figure(t_label, 'Angular velocity ($\omega_z$)', show=False)
     fig_x_trunc_err = Figure(t_label, 'Truncation Error |x(t) - x_n|', show=True)
     fig_v_trunc_err = Figure(t_label, 'Truncation Error |v(t) - v_n|', show=True)
 
-    E0 = E_kinetic(particles)
-    print('E0 =', E0)
-
-
-
-    #dt = 0.001
-    Ts = {
-        #0: 0.025, k==1e6
-        0: 0.05,
-        0.1: 0.035,
-        0.3: 0.125
-    }
-
     alphas = [0, 0.5]
-    #params_list = [(gamma, dy, dt), ...]
-    T_scale = np.pi/np.sqrt(2*k/m)
-    T_scale2 = 1/np.sqrt(k/m)
-    params_list = [
-        #(100, 0.0, 0.000005),
-        #(100, 0.0, 0.00001),
-        #(100, 0.0, 0.000025),
+    T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
+    T_scale = np.pi*T_scale2/np.sqrt(2)
 
-        #(100, 0.0, 0.00005),
-        #(100, 0.0, 0.0001),
-        #(100, 0.0, 0.000125),
-        #(100, 0.0, 0.00025),
-        #(100, 0.0, 0.0003),
-
-        #(100, 0.0, 0.0005),
-        #(100, 0.0, 0.001),
-        #(100, 0.0, 0.0025),
-        #(100, 0.0, 0.005),
-
-        #(100, 0.0, T_scale/1000),
-        #(100, 0.0, T_scale/300),
-
-        (0, 0.0, T_scale/100),
-        (0, 0.0, T_scale/30),
-        (0, 0.0, T_scale/10),
-        (0, 0.0, T_scale/3),
-    ]
-
-    #dt1 = [T_scale/div for div in np.arange(60, 220, 20)]
     dts = (
-        [T_scale2*dt_ for dt_ in np.linspace(0.01, 0.06, 5)] +
-        [T_scale2*dt_ for dt_ in np.linspace(0.06, 0.2, 10)] +
+        [T_scale2*dt_ for dt_ in np.geomspace(0.01, 0.2, 15)] +
         [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
     )
     dts.sort()
-    params_list = [(0, 0.0, dt_) for dt_ in dts]
-    ic(dts)
-    #params_list = [
-    #    (0, 0.0, T_scale/div)
-    #    for div in
-    #    np.arange(20, 200, 20)
-    #]
-    #params_list = [
-    #    (0, 0.0, T_scale2*dt)
-    #    for dt in
-    #    #np.linspace(0.01, 1.5, 10)
-    #    #np.linspace(0.01, 0.8, 30)
-    #    np.linspace(0.01, 0.03, 11)
-    #]
-    dts = [dt for (_, _, dt) in params_list]
+    if '--show-dts' in sys.argv:
+        ic(dts)
+        exit(0)
+    params_list = [(0, dt_) for dt_ in dts]
+    dts = [dt for (_, dt) in params_list]
     cols = alphas.copy()
     err_x_df = pd.DataFrame(0.0, columns=cols, index=dts)
     err_v_df = pd.DataFrame(0.0, columns=cols, index=dts)
-    #dt_alpha = 1.0
-    for i, (gamma_n, dy, dt) in enumerate(params_list):
+
+    for i, (gamma_n, dt) in enumerate(params_list):
         ic(dt)
-        T_scale = np.pi/np.sqrt(2*k/m)
         print('dt = T_scale/', T_scale/dt)
 
-        #if i == 2:
-        #    break
-
-        dx = np.sqrt((d/2)**2 - dy**2)
-        T_collision = 0 #-(pos0[1, 0] - dx)/(p0[1, 0]/m)
-        ic('T_collision =', T_collision)
-        # Number of time steps used in plotting the figure (based on the largest time step)
-        T = 20 * T_scale #Ts[dy]
-        T_min = 0 #T_collision
-        T_max = T_collision + T #T_scale
-        print('T_min =', T_min)
-        N_t_steps = int(T/dt + 1.5)
-        ic(N_t_steps)
-        ts = np.linspace(0, T, N_t_steps)
-        Es = np.zeros(N_t_steps)
-        Ers = np.zeros(N_t_steps)
-        omegaz = np.zeros(N_t_steps)
-        pos_x = np.zeros(N_t_steps)
-        pos_y = np.zeros(N_t_steps)
-        f_x = np.zeros(N_t_steps)
-        f_y = np.zeros(N_t_steps)
-        v_x = np.zeros(N_t_steps)
-        v_y = np.zeros(N_t_steps)
-        #data['t'] = ts
-
-
-        ## Create the time domain for the figure
-        min_idx = int(round(T_min/dt))
-        print('min_idx =', min_idx)
-        print('dt*min_idx =', (dt*min_idx-T_collision)/T_scale)
-        max_idx = int(T_max/dt+1.5)
-        idx = np.arange(min_idx, max_idx)
-        #t_plot = (ts[idx] - T_collision) /T_scale
-        t_plot = np.zeros(N_t_steps)
-        ic('N timesteps:',T_scale/dt)
-
-        #if i == 0:
-        #    data['t'] = t_plot
-
+        # Time the simulation for
+        T = 20 * T_scale
 
         for alpha in alphas:
             # Restore the initial particle setup
-            particles.xyz = pos0.copy()
-            particles.p = p0.copy()
-            particles.rot = rot0.copy()
-            particles.angular_mom = angular_mom0.copy()
-            particles.xyz[0, 1] = -dy
-            particles.xyz[1, 1] = dy
+            particles.xyz = particles0.xyz.copy()
+            particles.p = particles0.p.copy()
+            particles.rot = particles0.rot.copy()
+            particles.angular_mom = particles0.angular_mom.copy()
             particles.gamma_n = gamma_n
             particles.gamma_t = 0.5*particles.gamma_n
 
-            E0 = E_kinetic(particles)
-
-            # Setup the particle neighbor list
-            nlist = NList(d/2)
-            #contact = HookianContact(particles, dt)
-            contact = BondContact(particles, dt, alpha=alpha)
-
-            t = 0
-            Es[0] = 1
-            Ers[0] = 0
-            pos_x[0] = particles.xyz[0, 0]
-            pos_y[0] = particles.xyz[0, 1]
-            v_x[0] = particles.v[0, 0]
-            omegaz[1] = 0
-            print('pos(0) =')
-            print(particles.xyz)
-            print('Es.shape =', Es.shape)
-            print('T/dt =', T/dt)
-            print('T_scale/dt =', T_scale/dt)
-            j = 0
-            dr = np.zeros(pos0.shape)
-            contact.alpha = alpha
-
-
-
-            while t <= T+dt:
-
-                #ts[i] = t
-                #idx = np.where(np.abs(t - ts) < dt/2)[0]
-                #if np.any(idx):
-                # Save the kinetic energy for plotting if we are at a one of the
-                # plotting time steps.
-
-                if j < Es.shape[0]:
-                    t_plot[j] = t/T_scale
-                    #Es[j] = E_kinetic(particles)/E0
-                    #Ers[j] = E_kinetic_rot(particles)/E0
-                    omegaz[j] = particles.angular_mom[0, 2]/particles.mom_inertia[0]
-                    #print(Ers[idx[0]], E_kinetic_rot(particles))
-                    pos_x[j] = particles.xyz[0, 0]# - d/2
-                    pos_y[j] = particles.xyz[0, 1]# - d/2
-                    f_x[j] = max(k*(d - (particles.xyz[0, 0] - particles.xyz[1, 0])), 0)
-                    v_x[j] = particles.v[0, 0]
-                    v_y[j] = particles.v[0, 1]
-
-                nlist.time_step(particles, dr)
-                # Run the simulation for one time step
-                dr = time_step(
-                    particles,
-                    dt,
-                    nlist=nlist,
-                    contact_law=contact,
-                )
-
-                #if t < T_scale + dt/2 and t > T_scale - dt/2:
-                #    _, contact_stress = contact.calc_force_and_stiffness(
-                #        particles.gen_coords,
-                #        particles.d,
-                #        nlist,
-                #        particles.gen_M_matrix,
-                #        dt,
-                #    )
-
-                j += 1
-                t += dt
-                #ic(t - t_plot[j]*T_scale)
-
-
-
-            #print('v(T) =')
-            #print(particles.v)
-            ## Save the energy values to data buffer.
-            ##dt_key = '{0:f}'.format(dt)
-            ##data[dt_key] = (ts, Es)
+            sim_data = run_simulation(
+                dt,
+                particle_properties,
+                alpha,
+                T,
+                particles=particles
+            )
 
             ### Display
-            label = r'{3} order $h \approx t_c/{2:.1f}$, $\Delta y/d = {0}$, $\gamma={1}$'.format(
-                dy,
+            label = r'{2} order $h \approx t_c/{1:.1f}$, $\gamma={0}$'.format(
                 gamma_n,
                 T_scale/dt,
                 'First' if alpha == 0 else 'Second',
@@ -415,22 +278,29 @@ def main():
                 min(i, 9),
                 '-' if alpha == 0.5 else '-.'
             )
-            fig_f_x.plot(t_plot, f_x[idx], line_style, label=label)
-            fig_v_x.plot(t_plot, v_x[idx], line_style, label=label)
-            #fig_v_y.plot(t_plot, v_y[idx], line_style, label=label)
-            #fig_Es.plot(t_plot, Es[idx], line_style, label=label)
-            ##fig_Es.plot(t_plot, Es[idx], 'C{0}x'.format(i))
-            #fig_Ers.plot(t_plot, Ers[idx], line_style, label=label)
-            #fig_Etotal.plot(t_plot, Ers[idx] + Es[idx], line_style, label=label)
-            fig_pos_x.plot(t_plot, pos_x[idx], line_style, label=label)
-            #fig_trajectory.plot(pos_x, pos_y, line_style, label=label)
-            #fig_omega.plot(t_plot, omegaz[idx], line_style, label=label)
+
+            t_plot = sim_data['t'].to_numpy()
+            pos_x = sim_data['pos_x'].to_numpy()
+            v_x = sim_data['v_x'].to_numpy()
+
+            fig_v_x.plot(
+                t_plot,
+                sim_data['v_x'].to_numpy(),
+                line_style,
+                label=label,
+            )
+            fig_pos_x.plot(
+                t_plot,
+                pos_x,
+                line_style,
+                label=label,
+            )
 
             ## Plot the analytic solutions
-            if show_analytic and dy == 0: # and not gamma_n in analytic_plotted:
+            if show_analytic: 
 
-                t_compare_idx = np.where(t_plot > -dt/2)[0]
-                t_compare = t_plot[t_compare_idx]
+                #t_compare_idx = np.where(t_plot > -dt/2)[0]
+                t_compare = t_plot #[t_compare_idx]
 
                 analytic_plotted.append(gamma_n)
                 label = r'Analytic $\gamma = {0}$, $\Delta y=0$'.format(gamma_n)
@@ -438,16 +308,11 @@ def main():
                     'label': label,
                     'linestyle': '--',
                 }
-                t_collision = np.pi * 1/np.sqrt(k * 2 / m)
-                #ts_analytic = np.linspace(0, t_collision, 201)
-                tt = np.linspace(0, 1, 1001)
 
-                x_an = -x_analytic(t_compare*T_scale, m, 1, 1, k, gamma_n*m/2)
+                x_an = -x_analytic(t_compare*T_scale, particle_properties, v0)
                 fig_pos_x.plot(t_compare, x_an, 'k', **plot_settings)
-                #x_an = x_analytic(tt*T_scale, m, 1, 1, k, gamma_n*m/2)-d/2
-                #fig_pos_x.plot(tt*T_scale, -0.5-x_an, 'k--', **plot_settings)
 
-                v_an = -v_analytic(t_compare*T_scale, m, 1, 1, k, gamma_n*m/2)
+                v_an = -v_analytic(t_compare*T_scale, particle_properties, v0)
                 fig_v_x.plot(
                     t_compare,
                     v_an,
@@ -460,41 +325,47 @@ def main():
                     'First' if alpha == 0.0 else 'Second',
                     T_scale/dt,
                 )
-                fig_x_trunc_err.plot(t_compare,  np.abs(x_an - pos_x[t_compare_idx]), line_style, label=label)
-                fig_v_trunc_err.plot(t_compare,  np.abs(v_an - v_x[t_compare_idx]), line_style, label=label)
+                fig_x_trunc_err.plot(t_compare,  (x_an - pos_x), line_style, label=label)
+                fig_v_trunc_err.plot(t_compare,  (v_an - v_x), line_style, label=label)
 
-                err = np.linalg.norm( x_an - pos_x[t_compare_idx] )
+                err = np.linalg.norm( x_an - pos_x )
                 err_x_df[alpha][dt] = err
 
-                err = np.linalg.norm( v_an - v_x[t_compare_idx] )
+                err = np.linalg.norm( v_an - v_x )
                 err_v_df[alpha][dt] = err
-
-        #draw = []
-        #for pos in particles.xyz:
-        #    draw.append(r'\draw[] ({0}, {1}) circle ({2})'.format(
-        #        pos[0],
-        #        pos[1],
-        #        particles.d
-        #    ))
-
-        #for i in range(particles.xyz.shape[0]):
-        #    particles.xyz[i, 2] = i+1
-        #tex = snapshot.render(
-        #    positions=particles.xyz,
-        #    r=particles.d/2,
-        #    labeltext='$t={0}$; $h={1}$'.format(T, dt),
-        #)
-        #snapshot_out_filename = 'figures/dem_E_vs_time_end_dt_{0:f}.tex'.format(dt)
-        #with open(snapshot_out_filename, 'w') as out:
-        #    out.write(tex)
-
 
     fig_x_err_v_h = plt.figure()
     fig_v_err_v_h = plt.figure()
 
-    plot_lammps_data(fig_pos_x, fig_x_err_v_h, fig_v_err_v_h, 'lammps/impact_analytic/dump', k, m, d, 1.0)
+    plot_lammps_data(
+        fig_pos_x,
+        fig_v_x,
+        fig_x_err_v_h,
+        fig_v_err_v_h,
+        'lammps/impact_analytic/dump_verlet',
+        #k, m, d, 1.0,
+        particle_properties,
+        v0,
+        #dts_only=[dt for _,dt in params_list],
+        color='b',
+        label='LAMMPS (velocity-Verlet)',
+    )
+    plot_lammps_data(
+        fig_pos_x,
+        fig_v_x,
+        fig_x_err_v_h,
+        fig_v_err_v_h,
+        'lammps/impact_analytic/dump_respa',
+        #k, m, d, 1.0,
+        particle_properties,
+        v0,
+        #dts_only=[dt for _,dt in params_list],
+        color='m',
+        label='LAMMPS (rRESPA)',
+    )
+    #plot_lammps_data(fig_pos_x, fig_v_x, fig_x_err_v_h, fig_v_err_v_h, 'lammps/impact_analytic/dump', k, m, d, 1.0, dts_only=[dt for _,_,dt in params_list])
 
-    h_comp = err_x_df.index.to_numpy() * np.sqrt(k/m)
+    h_comp = err_x_df.index.to_numpy()/T_scale2 #* np.sqrt(k/m)
     ic(h_comp)
 
     plt.figure(fig_x_err_v_h.number)
@@ -503,12 +374,16 @@ def main():
         #plt.loglog(err_x_df.index.to_numpy(), err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
         #plt.loglog(Lh2, err_x_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
         #plt.loglog(Lh2, err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
+        label = 'VI ({0} order)'.format(
+            'First' if alpha == 0.0 else 'Second'
+        )
+        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('--' if alpha == 0.0 else '-'))
+        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('+' if alpha == 0.0 else 'o'), label=label)
     #plt.xlabel('h')
     #plt.xlabel('$Lh^2$')
     plt.xlabel('$h\sqrt{k/m}$')
     plt.ylabel('||x(t_n)-x_n||')
+    plt.legend(loc='best')
 
     plt.figure(fig_v_err_v_h.number)
     for alpha in alphas:
@@ -516,18 +391,17 @@ def main():
         #plt.loglog(err_v_df.index.to_numpy(), err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
         #plt.loglog(Lh2, err_v_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
         #plt.loglog(Lh2, err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
+        label = 'VI ({0} order)'.format(
+            'First' if alpha == 0.0 else 'Second'
+        )
+        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('--' if alpha == 0.0 else '-'))
+        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('+' if alpha == 0.0 else 'o'), label=label)
     #plt.xlabel('h')
     #plt.xlabel('$Lh^2$')
     plt.xlabel('$h\sqrt{k/m}$')
     plt.ylabel('||v(t_n)-v_n||')
+    plt.legend(loc='best')
 
-
-    if fig_trajectory.show:
-        plt.figure(fig_trajectory.fig.number)
-        plt.axis('equal')
-        #fig_trajectory.fig.axis('equal')
 
     ## Save .dat file
     #data.to_csv(filename, sep='\t', index=False)

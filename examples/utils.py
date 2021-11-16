@@ -3,8 +3,44 @@ import pandas as pd
 import re
 import os
 import numpy as np
+from collections import namedtuple
 
 from template import Template
+
+ParticleProperties = namedtuple('ParticleProperties', 'd k density m gamma I')
+
+def NewParticleProperties(d=1.0, k=1e6, rho=1.0, gamma=0.0):
+    volume = 4./3. * np.pi * (d/2)**3
+    m = volume * rho
+    I = 2./5. * m * (d/2)**2
+    return ParticleProperties(
+        d=d,
+        m=m,
+        k=k,
+        density=rho,
+        gamma=gamma,
+        I=I,
+    )
+
+def CacheMyDataFrame(cache_name):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            arg_hash = str(args)
+            filename = cache_name + arg_hash + '.pkl'
+            if os.path.exists(filename):
+                print('[CACHE]: loading {0}'.format(filename))
+                data = pd.read_pickle(filename)
+            else:
+                dirname = os.path.dirname(cache_name)
+                if not os.path.isdir(dirname):
+                    os.mkdir(dirname)
+                data = func(*args, **kwargs)
+                print('[CACHE]: saving {0}'.format(filename))
+                data.to_pickle(filename)
+            return data
+
+        return wrapper
+    return decorator
 
 def make_lammps_filename(prefix, ext, dt, gamma_n=None, dy=None, theta=None):
     dt_string = '{0:f}'.format(dt).rstrip('0')
