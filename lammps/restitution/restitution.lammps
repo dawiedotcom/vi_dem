@@ -23,8 +23,8 @@ fix             walls all wall/gran hooke 1000000 0 ${GAMMA_N} NULL 1000 1 yplan
 #fix             walls all wall/gran hooke 1000000 0 ${GAMMA_N} NULL 1000 1 yplane -0.50 0.50
 # Create atoms
 create_atoms    1 single 0 0 0
-variable        VX equal "-1 * sin(v_THETA/180*3.14)"
-variable        VY equal "-1 * cos(v_THETA/180*3.14)"
+variable        VX equal "-1 * sin(v_THETA/180*PI)"
+variable        VY equal "-1 * cos(v_THETA/180*PI)"
 set             atom 1 vx ${VX}
 set             atom 1 vy ${VY}
 set             atom 1 omega 0 0 ${OMEGAZ}
@@ -59,7 +59,11 @@ thermo_modify   norm no lost ignore
 
 
 ## Execution
-variable        N_COLLISIONS equal "180.0"
+if "(${TIMESTEP} == 0.00001) || (${TIMESTEP} == 0.00005)" then &
+   "variable        N_COLLISIONS equal '1800.0'" &
+else &
+   "variable        N_COLLISIONS equal '180.0'"
+
 variable        K            equal "1000000"
 variable        M            equal "0.5235987755982988"
 variable        T_SCALE equal "PI / sqrt(2*v_K/v_M)"
