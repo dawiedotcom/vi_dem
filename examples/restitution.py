@@ -89,7 +89,7 @@ def append_lammps_kin_e(lmp_atom_one_data, part_props):
 
 
 
-def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color='b', label='LAMMPS', dts_only=None, walls=[]):
+def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color=1, label='LAMMPS', dts_only=None, walls=[], mark='s'):
     files = [fname
         for fname in os.listdir(dir_name)
         if re.match('atom_one.*\.dump', fname)
@@ -119,7 +119,13 @@ def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color=
 
         atom_one_data['Eng'] = atom_one_data['KinEng'] + atom_one_data['PotEng']
 
-        tt = dt * np.arange(atom_one_data['x'].size)
+        if '--scaling' in sys.argv:
+            plot_idx = np.arange(atom_one_data['x'].size)
+        else:
+            T_min = 1650 * T_scale
+            T_max = 1700 * T_scale
+            plot_idx = np.arange(int(T_min/dt), int(T_max/dt))
+        tt = dt * plot_idx
 
         lammps_E_err = atom_one_data['Eng']/atom_one_data['Eng'][0] - 1
         E_label = '{0}: h={1}'.format(label, dt)
@@ -128,8 +134,8 @@ def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color=
         e_fig.plot(
             tt/T_scale,
             #np.abs(lammps_E_err),
-            (lammps_E_err),
-            'C{0}--'.format(min(9, lammps_dts.index(dt))),
+            (lammps_E_err[plot_idx].to_numpy()),
+            'C{0}--'.format(min(9, dts_only.index(dt))),
             label=E_label,
         )
 
@@ -143,10 +149,17 @@ def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color=
     ic(err_data)
 
     err_data.sort_index(inplace=True)
-    #ic(err_data)
-    plt.figure(err_E_fig.number)
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['E_err'].to_numpy(), '{0}o'.format(color))
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['E_err'].to_numpy(), '{0}-'.format(color), label=label)
+    err_E_fig.plot(
+        err_data.index.to_numpy()/T_scale2,
+        err_data['E_err'].to_numpy(),
+        'C{0}{1}'.format(color, mark),
+        label=label,
+    )
+    err_E_fig.plot(
+        err_data.index.to_numpy()/T_scale2,
+        err_data['E_err'].to_numpy(),
+        'C{0}-'.format(color),
+    )
 
 
 
@@ -161,9 +174,7 @@ def E_kinetic_rot(particles):
 def run_simulation(dt, props, alpha, T, particles=None, walls=[]):
 
     T_scale = np.pi/np.sqrt(2*props.k/props.m)
-    #N_t_steps = int((T_max - T_min)/dt)+1
     N_t_steps = round(T/dt)
-    #ts = np.linspace(T_min, T_max, N_t_steps)
     columns = [
         't_plot',
         'Ekin',
@@ -236,10 +247,14 @@ def main():
     T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
     T_scale = np.pi*T_scale2/np.sqrt(2)
     T_free = (L-particle_properties.d)/1 # v will be set to 1 at t=0
-    if '--scaling' in sys.argv:
+
+    do_scaling = '--scaling' in sys.argv
+    if do_scaling:
         T = fround(180 * (T_scale ))#0.4
     else:
         T = fround(1800 * (T_scale ))#0.4
+
+
     print('T =', T)
     print('N_collisions=', (T)/(T_scale + T_free))
 
@@ -263,13 +278,13 @@ def main():
     fig_Etot = Figure(
         '$t/t_c$',
         '$[K(t)+V(t)]/K(0) -1$',
-        dat_filename='figures/restitution_E_{0}.dat',
-        template_filename='figures/impact.tex_template',
-        tikz_filename='figures/restitution_E.tex'
+        dat_filename='figures/restitution_E_{0}.dat' if not do_scaling else '',
+        template_filename='figures/impact.tex_template' if not do_scaling else '',
+        tikz_filename='figures/restitution_E.tex' if not do_scaling else '',
     )
     #fig_omegaz = Figure('$t/t_c$', 'Angular Velocity ($\omega_z$)', show=False)
 
-    if '--scaling' in sys.argv:
+    if do_scaling:
         dts = (
             [T_scale2*dt_ for dt_ in np.geomspace(0.01, 0.2, 15)] +
             [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
@@ -292,6 +307,13 @@ def main():
     for i, (dt, gamma, omegaz, theta, alpha) in enumerate(params_list):
 
         print('dt = t_c/',T_scale/dt)
+
+        if do_scaling:
+            plot_idx = np.arange(int(T/dt))
+        else:
+            T_min = 1650 * T_scale
+            T_max = 1700 * T_scale
+            plot_idx = np.arange(int(T_min/dt), int(T_max/dt))
 
         # Restore the initial particle setup
         particles.xyz = particles0.xyz.copy()
@@ -334,10 +356,11 @@ def main():
         E_err = sim_data['Etot']/E0-1
 
         if alpha == 0.5:
+
             fig_Etot.plot(
-                sim_data['t_plot'],
+                sim_data['t_plot'][plot_idx],
                 #np.abs(E_err),
-                (E_err),
+                (E_err[plot_idx]),
                 'C{0}{1}'.format(
                     min(i//2, 9),
                     ':' if alpha == 0.0 else '-',
@@ -349,36 +372,50 @@ def main():
         err_E_df[alpha][dt] = np.linalg.norm(E_err)
 
 
-    err_E = plt.figure()
+    fig_err_E = Figure(
+        '$h/\sqrt{k/m}$',
+        '$||[K(t)+V(t)]/K(0) -1||$',
+        dat_filename='figures/restitution_errE_{0}.dat' if do_scaling else '',
+        template_filename='figures/semilogy.tex_template' if do_scaling else '',
+        tikz_filename='figures/restitution_errE.tex' if do_scaling else '',
+    )
     for alpha in alphas:
         line = '--' if alpha == 0.0 else '-'
         mark = '+' if alpha == 0.0 else 'o'
         label = 'VI ({0} order)'.format('First' if alpha == 0.0 else 'Second')
-        plt.semilogy(dts/T_scale2, err_E_df[alpha], 'k'+mark, label=label)
-        plt.semilogy(dts/T_scale2, err_E_df[alpha], 'k'+line)
+        fig_err_E.plot(
+            dts/T_scale2,
+            err_E_df[alpha].to_numpy(),
+            'C0' + mark,
+            label=label
+        )
+        fig_err_E.plot(
+            dts/T_scale2,
+            err_E_df[alpha].to_numpy(),
+            'C0' + line,
+        )
 
     plot_lammps_err_data(
         fig_Etot,
-        err_E,
+        fig_err_E,
         'lammps/restitution/dump_verlet',
         particle_properties,
         walls=walls,
         dts_only=dts,
     )
 
-    plt.xlabel('$h\sqrt{k/m}$')
-    plt.ylabel('$|E_t(t_n)/E(0) - 1|$')
-    plt.legend(loc='best')
+    ax = plt.gca()
+    ax.set_yscale('log')
     
     plt.figure(fig_Etot.fig.number)
 
-    if not '--scaling' in sys.argv:
-        #ax = plt.gca()
-        #ax.set_yscale('log')
-        T_min = 1650
-        T_max = 1700
-        _, _, ymax, ymin = plt.axis()
-        plt.axis([T_min, T_max, ymax, ymin])
+    #if not do_scaling:
+    #    #ax = plt.gca()
+    #    #ax.set_yscale('log')
+    #    T_min = 1650
+    #    T_max = 1700
+    #    _, _, ymax, ymin = plt.axis()
+    #    plt.axis([T_min, T_max, ymax, ymin])
 
     if not '--no-show' in sys.argv:
         plt.show()

@@ -184,6 +184,7 @@ class Figure:
                 for plot in self.plots
             ]
 
+            self.plots.reverse()
             ## Render the tex template
             tex = template.render(
                 colorscheme='Dark2-%d' % (n_color_scheme),
@@ -255,15 +256,27 @@ class Figure:
             legend_str = ('\n\t\t' + r'\addlegendentry{%s};' % (kwargs['label']) + '\n'
                           if 'label' in kwargs.keys()
                           else '')
-            line_spec = ''
-            if legend[2:4] == '--':
+            marks = {
+                '+': '+',
+                'o': 'o',
+                'd': 'diamond',
+                's': 'square',
+            }
+
+            if '--' in legend:
                 line_spec = ', dashed'
-            if legend[2:4] == '-.':
+            elif '-' in legend:
+                line_spec = ''
+            elif '-.' in legend:
                 line_spec = ', dash dot'
+            else:
+                line_spec = ', only marks, mark={0}'.format(marks[legend[2:]])
+            
+            dat_name = os.path.basename(self.dat_filename.format(self.n_plot))
             plot_line = r'\addplot[index of colormap=%d of Dark2-%%d%s]table[x=x, y=y]{%s};%s' % (
                 color_i,
                 line_spec,
-                self.dat_filename.format(self.n_plot),
+                dat_name,
                 legend_str,
             )
             self.plots.append(plot_line)

@@ -74,7 +74,7 @@ def v_analytic(t, props, v0):
         -v0 * np.cos(t_norm)
     )
 
-def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_properties, v0, color='b', label='LAMMPS', dts_only=None):
+def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_properties, v0, color=2, mark='s', label='LAMMPS', dts_only=None):
     files = [fname
         for fname in os.listdir(dir_name)
         if re.match('atom_one.*\.dump', fname)
@@ -115,14 +115,12 @@ def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_prop
 
     err_data.sort_index(inplace=True)
     #ic(err_data)
-    plt.figure(err_x_fig.number)
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), '{0}o'.format(color))
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), '{0}-'.format(color), label=label)
+    err_x_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), 'C{0}{1}'.format(color, mark), label=label)
+    err_x_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), 'C{0}-'.format(color))
 
 
-    plt.figure(err_v_fig.number)
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), '{0}o'.format(color))
-    plt.semilogy(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), '{0}-'.format(color), label=label)
+    err_v_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), 'C{0}{1}'.format(color, mark), label=label)
+    err_v_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), 'C{0}-'.format(color))
 
 
 def E_kinetic(particles):
@@ -334,8 +332,63 @@ def main():
                 err = np.linalg.norm( v_an - v_x )
                 err_v_df[alpha][dt] = err
 
-    fig_x_err_v_h = plt.figure()
-    fig_v_err_v_h = plt.figure()
+    fig_x_err_v_h = Figure(
+        '$h/\sqrt{k/m}$',
+        '$||x(t_n) - x_n||$',
+        dat_filename='figures/impact_analytic_errx_{0}.dat',
+        template_filename='figures/semilogy.tex_template',
+        tikz_filename='figures/impact_analytic_errx.tex',
+    )
+        
+    fig_v_err_v_h = Figure(
+        '$h/\sqrt{k/m}$',
+        '$||v(t_n) - v_n||$',
+        dat_filename='figures/impact_analytic_errv_{0}.dat',
+        template_filename='figures/semilogy.tex_template',
+        tikz_filename='figures/impact_analytic_errv.tex',
+    )
+
+
+    h_comp = err_x_df.index.to_numpy()/T_scale2 #* np.sqrt(k/m)
+    ic(h_comp)
+
+    for alpha in alphas:
+        label = 'VI ({0} order)'.format(
+            'First' if alpha == 0.0 else 'Second'
+        )
+        fig_x_err_v_h.plot(
+            h_comp,
+            err_x_df[alpha].to_numpy(),
+            'C0{0}'.format('--' if alpha == 0.0 else '-'),
+        )
+        fig_x_err_v_h.plot(
+            h_comp,
+            err_x_df[alpha].to_numpy(),
+            'C0{0}'.format('+' if alpha == 0.0 else 'o'),
+            label=label,
+        )
+
+    ax = plt.gca()
+    ax.set_yscale('log')
+
+    for alpha in alphas:
+        label = 'VI ({0} order)'.format(
+            'First' if alpha == 0.0 else 'Second'
+        )
+        fig_v_err_v_h.plot(
+            h_comp,
+            err_v_df[alpha].to_numpy(),
+            'C0{0}'.format('--' if alpha == 0.0 else '-')
+        )
+        fig_v_err_v_h.plot(
+            h_comp,
+            err_v_df[alpha].to_numpy(),
+            'C0{0}'.format('+' if alpha == 0.0 else 'o'),
+            label=label
+        )
+
+    ax = plt.gca()
+    ax.set_yscale('log')
 
     plot_lammps_data(
         fig_pos_x,
@@ -347,60 +400,24 @@ def main():
         particle_properties,
         v0,
         #dts_only=[dt for _,dt in params_list],
-        color='b',
+        color=1,
+        mark='s',
         label='LAMMPS (velocity-Verlet)',
     )
-    plot_lammps_data(
-        fig_pos_x,
-        fig_v_x,
-        fig_x_err_v_h,
-        fig_v_err_v_h,
-        'lammps/impact_analytic/dump_respa',
-        #k, m, d, 1.0,
-        particle_properties,
-        v0,
-        #dts_only=[dt for _,dt in params_list],
-        color='m',
-        label='LAMMPS (rRESPA)',
-    )
-    #plot_lammps_data(fig_pos_x, fig_v_x, fig_x_err_v_h, fig_v_err_v_h, 'lammps/impact_analytic/dump', k, m, d, 1.0, dts_only=[dt for _,_,dt in params_list])
-
-    h_comp = err_x_df.index.to_numpy()/T_scale2 #* np.sqrt(k/m)
-    ic(h_comp)
-
-    plt.figure(fig_x_err_v_h.number)
-    for alpha in alphas:
-        #plt.loglog(err_x_df.index.to_numpy(), err_x_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        #plt.loglog(err_x_df.index.to_numpy(), err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        #plt.loglog(Lh2, err_x_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        #plt.loglog(Lh2, err_x_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        label = 'VI ({0} order)'.format(
-            'First' if alpha == 0.0 else 'Second'
-        )
-        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('--' if alpha == 0.0 else '-'))
-        plt.semilogy(h_comp, err_x_df[alpha].to_numpy(), 'k{0}'.format('+' if alpha == 0.0 else 'o'), label=label)
-    #plt.xlabel('h')
-    #plt.xlabel('$Lh^2$')
-    plt.xlabel('$h\sqrt{k/m}$')
-    plt.ylabel('||x(t_n)-x_n||')
-    plt.legend(loc='best')
-
-    plt.figure(fig_v_err_v_h.number)
-    for alpha in alphas:
-        #plt.loglog(err_v_df.index.to_numpy(), err_v_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        #plt.loglog(err_v_df.index.to_numpy(), err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        #plt.loglog(Lh2, err_v_df[alpha].to_numpy(), 'k{0}'.format('-' if alpha == 0.5 else '--'))
-        #plt.loglog(Lh2, err_v_df[alpha].to_numpy(), 'k{0}'.format('o' if alpha == 0.5 else '+'))
-        label = 'VI ({0} order)'.format(
-            'First' if alpha == 0.0 else 'Second'
-        )
-        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('--' if alpha == 0.0 else '-'))
-        plt.semilogy(h_comp, err_v_df[alpha].to_numpy(), 'k{0}'.format('+' if alpha == 0.0 else 'o'), label=label)
-    #plt.xlabel('h')
-    #plt.xlabel('$Lh^2$')
-    plt.xlabel('$h\sqrt{k/m}$')
-    plt.ylabel('||v(t_n)-v_n||')
-    plt.legend(loc='best')
+    #plot_lammps_data(
+    #    fig_pos_x,
+    #    fig_v_x,
+    #    fig_x_err_v_h,
+    #    fig_v_err_v_h,
+    #    'lammps/impact_analytic/dump_respa',
+    #    #k, m, d, 1.0,
+    #    particle_properties,
+    #    v0,
+    #    #dts_only=[dt for _,dt in params_list],
+    #    color=2,
+    #    mark='d',
+    #    label='LAMMPS (rRESPA)',
+    #)
 
 
     ## Save .dat file
