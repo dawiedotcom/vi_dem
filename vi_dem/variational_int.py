@@ -201,12 +201,12 @@ class HookianContact(Potential):
     #    return Potential.calc_force_and_stiffness(self, *args)
 
 
-    def __F_d_n(self, v, q_i, q_j, i, j, a, d_ij):
+    def __F_d_n(self, v_i, v_j, q_i, q_j, i, j, a, d_ij):
         # Normal dissipation force
         v_dot_n = 0
         for comp in range(3):
             v_dot_n += (1/(d_ij) *
-                        (v[i, comp] - v[j, comp]) *
+                        (v_i[comp] - v_j[comp]) *
                         (q_i[comp] - q_j[comp]))
 
         m_eff = self.m[i] * self.m[j] / (self.m[i] + self.m[j])
@@ -224,7 +224,8 @@ class HookianContact(Potential):
     def __S_d_n(self, q_i, q_j, i, j, a, b, d_ij):
         # Normal dissipation stress
         if a < 3 and b < 3:
-            result = 0.5*self.gamma_n/(d_ij**2 * self.dt) * (q_i[a] - q_j[a]) * (q_i[b] - q_j[b])
+            m_eff = self.m[i] * self.m[j] / (self.m[i] + self.m[j])
+            result = 0.5*self.gamma_n*m_eff/(d_ij**2 * self.dt) * (q_i[a] - q_j[a]) * (q_i[b] - q_j[b])
             #ic(result)
             return result
         else:
@@ -238,12 +239,12 @@ class HookianContact(Potential):
         #    print(i, j, result, type(self))
         return result
 
-    def __F_d_t(self, v, q_i, q_j, i, j, a, d_ij):
+    def __F_d_t(self, v_i, v_j, q_i, q_j, i, j, a, d_ij):
         # Tangential dissipation force
         v_dot_n = 0
         for comp in range(3):
             v_dot_n += (1/(d_ij) *
-                        (v[i, comp] - v[j, comp]) *
+                        (v_i[comp] - v_j[comp]) *
                         (q_i[comp] - q_j[comp]))
 
         a1 = (a+1) % 3
@@ -254,14 +255,14 @@ class HookianContact(Potential):
         m_eff = self.m[i] * self.m[j] / (self.m[i] + self.m[j])
         res = self.gamma_t * m_eff * (
             ## Relative veloctiy
-            v[i, a] - v[j, a]
+            v_i[a] - v_j[a]
             ## Subtract the normal component
             - 1/(d_ij) * (q_i[a] - q_j[a]) * v_dot_n
             ## Cross product (domega x dr)
             -1/(2) * (
-                (v[i, a1_rot] + v[j, a1_rot]) * (q_i[a2] - q_j[a2])
+                (v_i[a1_rot] + v_j[a1_rot]) * (q_i[a2] - q_j[a2])
                 -
-                (v[i, a2_rot] + v[j, a2_rot]) * (q_i[a1] - q_j[a1])
+                (v_i[a2_rot] + v_j[a2_rot]) * (q_i[a1] - q_j[a1])
             )
         )
 
@@ -280,17 +281,26 @@ class HookianContact(Potential):
         a_lin = a - 3
 
         v = self.particles.gen_vel
-        #TODO:
-        F_tan_a1 = 1.0 * (
-            #self.__F_d_t((self.q_n - q)/self.dt, q, i, j, a1, d_ij)
-            + self.__F_d_t(v, q_i, q_j, i, j, a1, d_ij)
-        )
+        q_n = self.particles.gen_coords
+        if self.alpha == 0:
+            F_tan_a1 = self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a1, d_ij)
+            F_tan_a2 = self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a2, d_ij)
+        else:
+            F_tan_a1 = (
+                self.alpha * self.__F_d_t(
+                    (q_n[i] - q_i)/self.dt/self.alpha,
+                    (q_n[j] - q_j)/self.dt/self.alpha,
+                    q_n[i], q_n[j], i, j, a1, d_ij)
+                + (1-self.alpha)*self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a1, d_ij)
+            )
+            F_tan_a2 = (
+                self.alpha * self.__F_d_t(
+                    (q_n[i] - q_i)/self.dt/self.alpha,
+                    (q_n[j] - q_j)/self.dt/self.alpha,
+                    q_n[i], q_n[j], i, j, a2, d_ij)
+                + (1-self.alpha)*self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a2, d_ij)
+            )
 
-        #TODO:
-        F_tan_a2 = 1.0 * (
-            #self.__F_d_t((self.q_n - q)/self.dt, q, i, j, a2, d_ij)
-            + self.__F_d_t(v, q_i, q_j, i, j, a2, d_ij)
-        )
 
         return -0.5*(
             (q_i[a1] - q_j[a1]) * F_tan_a2 -
@@ -327,21 +337,31 @@ class HookianContact(Potential):
         F_normal_el = self.__F_e_n(q_i, q_j, i, j, a, d_ij)
 
         v = self.particles.gen_vel
-        F_normal_dis = 1.0 * (
-            #self.__F_d_n((self.q_n - q)/self.dt, q, i, j, a, d_ij)
-            + self.__F_d_n(v, q_i, q_j, i, j, a, d_ij)
-        )
-        #TODO:
-        #print(
-        #    (self.q_n - q)/(self.dt/2)-
-        #    self.v
-        #    )
+        if self.alpha == 0:
+            F_normal_dis = self.__F_d_n(v[i], v[j], q_i, q_j, i, j, a, d_ij)
+            F_tan_dis = self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a , d_ij)
 
-        F_tan_dis = 1.0 * (
-            #self.__F_d_t((self.q_n - q)/self.dt, q, i, j, a, d_ij)
-            + self.__F_d_t(v, q_i, q_j, i, j, a , d_ij)
-        )
-
+        else:
+            q_n = self.particles.gen_coords
+            F_normal_dis = (
+                # Q^-(q_k, q_{k+1})
+                self.alpha * self.__F_d_n(
+                    (q_n[i] - q_i)/self.dt/self.alpha,
+                    (q_n[j] - q_j)/self.dt/self.alpha,
+                    q_n[i], q_n[j], i, j, a, d_ij)
+                # Q^p(q_k, p_k)
+                + (1-self.alpha)*self.__F_d_n(v[i], v[j], q_i, q_j, i, j, a, d_ij)
+            )
+            F_tan_dis = (
+                # Q^-(q_k, q_{k+1})
+                self.alpha * self.__F_d_t(
+                    (q_n[i] - q_i)/self.dt/self.alpha,
+                    (q_n[j] - q_j)/self.dt/self.alpha,
+                    q_n[i], q_n[j], i, j, a, d_ij)
+                # Q^p(q_k, p_k)
+                + (1-self.alpha)*self.__F_d_t(v[i], v[j], q_i, q_j, i, j, a, d_ij)
+            )
+ 
         return (1-self.alpha)*F_normal_el + F_normal_dis + F_tan_dis
 
     def calc_stiffness_ij(self, q_i, q_j, i, j, a, b, d_ij):
@@ -465,7 +485,7 @@ def pf(f):
     return print_f[:, :2]
 
 
-def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_steps=200, walls=[], gravity=None, nlist=None, contact_law=None, dq_alpha=1.0):
+def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_steps=200, walls=[], nlist=None, contact_law=None, dq_alpha=1.0):
     '''
     Find the next position by Newton's method.
     '''
@@ -476,18 +496,10 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_st
     p0_ = p0.flatten()
     M_ = particles.gen_M_vector
 
-    # Create a KDTree if no neighbor list is provided
+    # Check that a neighbor list is provided
     if nlist is None:
-        pos = q0[:, :3]
-        pos.shape = (q0.shape[0], 3)
-        kdtree = cKDTree(pos)
-    else:
-        kdtree = None
-
-    # Constant external forces
-    #f_ext = -gravity*particles.m
-    #t_ext = np.zeros(particles.xyz.shape)
-    #ext = np.concatenate((f_ext, t_ext), axis=1).flatten()
+        print('No neighbor list provided')
+        exit(1)
 
     res = 0
     e0 = kd
@@ -495,7 +507,6 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_st
 
     prev_e = -1
     #while e/e0 > e_tol and step < max_steps:
-    d = 1.0
     while step < max_steps:
 
         ## Calculate forces with walls
@@ -508,7 +519,7 @@ def newton_solve(particles, dt, q0, ext_forces, e_tol=1e-13, d_tol=1e-13, max_st
         contact_force, contact_stress = contact_law.calc_force_and_stiffness(
             q__,
             particles.d,
-            nlist or kdtree,
+            nlist,
             particles.gen_M_matrix,
             dt
         )
@@ -582,7 +593,6 @@ def time_step(particles, dt, walls=[], gravity=np.array([0, 0, 0]), nlist=None, 
         q0,
         (1-contact_law.alpha) * external_gen_force,
         walls=walls,
-        gravity=gravity,
         nlist=nlist,
         contact_law=contact_law,
         dq_alpha=dq_alpha,
@@ -591,24 +601,29 @@ def time_step(particles, dt, walls=[], gravity=np.array([0, 0, 0]), nlist=None, 
 
     # Calculate the new momentum
 
-    q = contact_law.alpha_interp(q0, particles.gen_coords)#0.5*(q0 + particles.gen_coords)
-    F = (contact_law.alpha)*contact_law.calc_conservative_force(
-        q,
-        particles.d,
-        nlist,
-        particles.gen_M_matrix,
-        dt,
-    )
+    if contact_law.alpha > 0.0:
+        q = contact_law.alpha_interp(q0, particles.gen_coords)#0.5*(q0 + particles.gen_coords)
+        F = (contact_law.alpha)*contact_law.calc_conservative_force(
+            q,
+            particles.d,
+            nlist,
+            particles.gen_M_matrix,
+            dt,
+           )
 
-    for wall in walls:
-        #q = wall.alpha_interp(q0, particles.gen_coords)#0.5*(q0 + particles.gen_coords)
-        F += wall.calc_conservative_force(q, particles.gen_vel, particles.d)
+        for wall in walls:
+            #q = wall.alpha_interp(q0, particles.gen_coords)#0.5*(q0 + particles.gen_coords)
+            F += wall.calc_conservative_force(q, particles.gen_vel, particles.d)
 
-    F += contact_law.alpha * external_gen_force
+        F += contact_law.alpha * external_gen_force
 
-    F.shape = q0.shape
-    particles.p = (particles.xyz - q0[:, :3]) * m3/dt - F[:, :3]*dt
-    particles.angular_mom = (particles.rot - q0[:, 3:]) * I3/dt - F[:, 3:]*dt
+        F.shape = q0.shape
+        particles.p = (particles.xyz - q0[:, :3]) * m3/dt - F[:, :3]*dt
+        particles.angular_mom = (particles.rot - q0[:, 3:]) * I3/dt - F[:, 3:]*dt
+
+    else:
+        particles.p = (particles.xyz - q0[:, :3]) * m3/dt 
+        particles.angular_mom = (particles.rot - q0[:, 3:]) * I3/dt 
 
     dr = particles.xyz - q0[:, :3]
     return dr

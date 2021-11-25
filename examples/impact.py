@@ -199,7 +199,7 @@ def main():
     if '--small-dt' in sys.argv:
         # Parameters for comparing contact models at small time steps.
         #alphas = [(0.0|0.5), ...]
-        alphas = [0.5]
+        alphas = [0, 0.5]
         #params_list = [(gamma, dy, dt), ...]
         params_list = [
             (0, 0.3, 0.00001),
@@ -301,7 +301,8 @@ def main():
         #    label=label)
 
 
-        if not ('--small-dt' in sys.argv or '--analytic' in sys.argv) and not lmps_atom_one_data is None:
+        #if not ('--small-dt' in sys.argv or '--analytic' in sys.argv) and not lmps_atom_one_data is None:
+        if not lmps_atom_one_data is None:
             fig_pos_x.plot(
                 t_plot,
                 lmps_atom_one_data['x'][min_idx:max_idx].to_numpy() - lmps_atom_one_data['diameter'][min_idx:max_idx].to_numpy()/2,

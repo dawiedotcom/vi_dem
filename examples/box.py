@@ -392,9 +392,9 @@ def main():
     fig_K = Figure(
         '$\sqrt{g/d}\ t$',
         r'$\bar{K}/(mgd)$',
-        dat_filename='figures/box_K_{0}.dat',
+        dat_filename='figures/box_K_%d_{0}.dat' % N,
         template_filename='figures/impact.tex_template',
-        tikz_filename='figures/box_K.tex',
+        tikz_filename='figures/box_K_%d.tex' % N,
     )
     fig_xt = Figure('t', 'x', show=False)
     fig_zt = Figure('t', 'z')
@@ -402,9 +402,9 @@ def main():
         #'$t/t_c$',
         r'$\sqrt{g/d}\ t$',
         r'$\delta v/\sqrt{gd}$',
-        dat_filename='figures/box_T_{0}.dat',
+        dat_filename='figures/box_T_%d_{0}.dat' % N,
         template_filename='figures/impact.tex_template',
-        tikz_filename='figures/box_T.tex',
+        tikz_filename='figures/box_T_%d.tex' % N,
     )
 
 
@@ -423,155 +423,179 @@ def main():
         exit(0)
 
     dump_folder = 'lammps/box/dump_{N}_{dt:.10f}'.format(N=N, dt=dt).strip('0')+'/'
-    cache_filename = make_cache_filename(name='cache/box_particles', T=T, dt=dt, k=k, gamma=gamma, N=N)
-    # Starting configuration
-    #dump_files = get_lammps_dump_files(dump_folder)
+    alphas = [0, 0.5]
+    for alpha in alphas:
+        name = 'cache/box_particles' if alpha == 0.5 else 'cache/box_particles_first_order'
+        cache_filename = make_cache_filename(name=name, T=T, dt=dt, k=k, gamma=gamma, N=N)
+        # Starting configuration
+        #dump_files = get_lammps_dump_files(dump_folder)
 
-    initial_config = 'lammps/box/box_generate_{N}.dump'.format(N=N)
-    ic(initial_config)
-    if not os.path.exists(initial_config):
-        print('Could not load initial partile configuration from LAMMPS')
-        exit(0)
-    data = load(initial_config)
+        initial_config = 'lammps/box/box_generate_{N}.dump'.format(N=N)
+        ic(initial_config)
+        if not os.path.exists(initial_config):
+            print('Could not load initial partile configuration from LAMMPS')
+            exit(0)
+        data = load(initial_config)
 
-    particles = setup_particles_from_lammps(data, k=k, gamma=gamma)
+        particles = setup_particles_from_lammps(data, k=k, gamma=gamma)
 
-    nlist = NList(d/2)
-    contact = HookianContact(particles, dt)
-    N_particles = particles.xyz.shape[0]
-    mass = particles.m[0]
+        nlist = NList(d/2)
+        contact = HookianContact(particles, dt, alpha=alpha)
+        N_particles = particles.xyz.shape[0]
+        mass = particles.m[0]
 
 
-    # Number of time steps used in plotting the figure (based on the largest time step)
-    N_t_steps = int(T/dt)+1
-    N_dump_steps = int(T/dt_dump)+1
-    print('N_dump_steps:', N_dump_steps)
+        # Number of time steps used in plotting the figure (based on the largest time step)
+        N_t_steps = int(T/dt)+1
+        N_dump_steps = int(T/dt_dump)+1
+        print('N_dump_steps:', N_dump_steps)
 
-    is_simulation_cache_fresh = is_cache_fresh(cache_filename, initial_config)
+        is_simulation_cache_fresh = is_cache_fresh(cache_filename, initial_config)
 
-    if os.path.exists(cache_filename) and not '--no-cache' in sys.argv and is_simulation_cache_fresh:
-        print('Found box simulation cache: {0}'.format(cache_filename))
-        print('dt =', dt)
-        figure_data = pd.read_csv(cache_filename)
+        if os.path.exists(cache_filename) and not '--no-cache' in sys.argv and is_simulation_cache_fresh:
+            print('Found box simulation cache: {0}'.format(cache_filename))
+            print('dt =', dt)
+            figure_data = pd.read_csv(cache_filename)
 
-        #for i in range(N_particles):
-        #    i_dump = N_dump_steps -1
-        #    particles.xyz[i, 0] = figure_data['x' + str(i)][i_dump]
-        #    particles.xyz[i, 1] = figure_data['y' + str(i)][i_dump]
-        #    particles.xyz[i, 2] = figure_data['z' + str(i)][i_dump]
-        #    particles.v[i, 0] = figure_data['vx' + str(i)][i_dump]
-        #    particles.v[i, 1] = figure_data['vy' + str(i)][i_dump]
-        #    particles.v[i, 2] = figure_data['vz' + str(i)][i_dump]
-        #    #particles.v[i, 0] = figure_data['vx' + str(i)][i_dump]
-        #    #particles.v[i, 1] = figure_data['vy' + str(i)][i_dump]
-        #    #particles.v[i, 2] = figure_data['vz' + str(i)][i_dump]
-    else:
-        # Perform our DEM simulation
+            #for i in range(N_particles):
+            #    i_dump = N_dump_steps -1
+            #    particles.xyz[i, 0] = figure_data['x' + str(i)][i_dump]
+            #    particles.xyz[i, 1] = figure_data['y' + str(i)][i_dump]
+            #    particles.xyz[i, 2] = figure_data['z' + str(i)][i_dump]
+            #    particles.v[i, 0] = figure_data['vx' + str(i)][i_dump]
+            #    particles.v[i, 1] = figure_data['vy' + str(i)][i_dump]
+            #    particles.v[i, 2] = figure_data['vz' + str(i)][i_dump]
+            #    #particles.v[i, 0] = figure_data['vx' + str(i)][i_dump]
+            #    #particles.v[i, 1] = figure_data['vy' + str(i)][i_dump]
+            #    #particles.v[i, 2] = figure_data['vz' + str(i)][i_dump]
+        else:
+            # Perform our DEM simulation
+            if alpha == 0.0:
+                continue
 
-        figure_data = prepare_dataframe(N_particles, N_dump_steps)
-        figure_data['t'] = np.linspace(0, T, N_dump_steps)
+            figure_data = prepare_dataframe(N_particles, N_dump_steps)
+            figure_data['t'] = np.linspace(0, T, N_dump_steps)
 
-        ## Wall setup
+            ## Wall setup
 
-        walls = [
-            Wall(np.array([-L, 0, 0]), np.array([ 1, 0, 0]), k, gamma, gamma /2),
-            Wall(np.array([ L, 0, 0]), np.array([-1, 0, 0]), k, gamma, gamma /2),
-            Wall(np.array([0, -L, 0]), np.array([0,  1, 0]), k, gamma, gamma /2),
-            Wall(np.array([0,  L, 0]), np.array([0, -1, 0]), k, gamma, gamma /2),
-            Wall(np.array([0, 0, -L]), np.array([0, 0,  1]), k, gamma, gamma /2),
-            Wall(np.array([0, 0,  L_zhi]), np.array([0, 0, -1]), k, gamma, gamma /2),
-           ]
+            walls = [
+                Wall(np.array([-L, 0, 0]), np.array([ 1, 0, 0]), k, gamma, gamma /2, alpha=alpha),
+                Wall(np.array([ L, 0, 0]), np.array([-1, 0, 0]), k, gamma, gamma /2, alpha=alpha),
+                Wall(np.array([0, -L, 0]), np.array([0,  1, 0]), k, gamma, gamma /2, alpha=alpha),
+                Wall(np.array([0,  L, 0]), np.array([0, -1, 0]), k, gamma, gamma /2, alpha=alpha),
+                Wall(np.array([0, 0, -L]), np.array([0, 0,  1]), k, gamma, gamma /2, alpha=alpha),
+                Wall(np.array([0, 0,  L_zhi]), np.array([0, 0, -1]), k, gamma, gamma /2, alpha=alpha),
+               ]
 
-        wall_nlist = WallNList(d/2, walls)
+            wall_nlist = WallNList(d/2, walls)
 
-        t = 0
-        step = 0
-        i_dump = 0
-        dr = np.zeros(particles.xyz.shape)
-        while step <= N_t_steps:
-            # Run the simulation for one time step
-            nlist.time_step(particles, dr)
-            wall_nlist.time_step(particles, dr)
-            dr = time_step(
-                particles,
+            t = 0
+            step = 0
+            i_dump = 0
+            dr = np.zeros(particles.xyz.shape)
+            while step <= N_t_steps:
+                # Run the simulation for one time step
+                nlist.time_step(particles, dr)
+                wall_nlist.time_step(particles, dr)
+                dr = time_step(
+                    particles,
+                    dt,
+                    walls=walls,
+                    gravity=np.array([0, 0, -g]),
+                    nlist=nlist,
+                    contact_law=contact,
+                    #dq_alpha=0.5
+                )
+
+                if step % dump_step == 0:
+                    print(' t = {1:.3f} ({0:.2f}%)'.format(100.0*step/N_t_steps, step*dt))
+                    for i in range(N_particles):
+                        figure_data['x' + str(i)][i_dump] = particles.xyz[i, 0]
+                        figure_data['y' + str(i)][i_dump] = particles.xyz[i, 1]
+                        figure_data['z' + str(i)][i_dump] = particles.xyz[i, 2]
+                        figure_data['vx' + str(i)][i_dump] = particles.v[i, 0]
+                        figure_data['vy' + str(i)][i_dump] = particles.v[i, 1]
+                        figure_data['vz' + str(i)][i_dump] = particles.v[i, 2]
+                        figure_data['omegax' + str(i)][i_dump] = particles.angular_v[i, 0]
+                        figure_data['omegay' + str(i)][i_dump] = particles.angular_v[i, 1]
+                        figure_data['omegaz' + str(i)][i_dump] = particles.angular_v[i, 2]
+                    i_dump += 1
+                #elif step % 500:
+                #    print(' t = {1:.3f} ({0:.2f}%)'.format(100.0*step/N_t_steps, step*dt))
+
+                step += 1
+
+            figure_data.to_csv(cache_filename)
+
+        compare_to_plot_i = lammps_dts.index(dt)
+        calc_total_kinetic_E(m, d, N_particles, figure_data)
+        fig_K.plot(
+            figure_data['t']*T_macro_scale,
+            (figure_data['K_lin'] + figure_data['K_rot'])/(K_scale*N_particles),
+            'C{0}{1}'.format(
+                compare_to_plot_i,
+                ':' if alpha == 0.0 else '-',
+            ),
+            label='{0} order Var. Int. ($\Delta t = {1}$; N={2})'.format(
+                'First' if alpha == 0.0 else 'Second',
                 dt,
-                walls=walls,
-                gravity=np.array([0, 0, -g]),
-                nlist=nlist,
-                contact_law=contact,
-                #dq_alpha=0.5
+                N_particles,
             )
+           )
 
-            if step % dump_step == 0:
-                print(' t = {1:.3f} ({0:.2f}%)'.format(100.0*step/N_t_steps, step*dt))
-                for i in range(N_particles):
-                    figure_data['x' + str(i)][i_dump] = particles.xyz[i, 0]
-                    figure_data['y' + str(i)][i_dump] = particles.xyz[i, 1]
-                    figure_data['z' + str(i)][i_dump] = particles.xyz[i, 2]
-                    figure_data['vx' + str(i)][i_dump] = particles.v[i, 0]
-                    figure_data['vy' + str(i)][i_dump] = particles.v[i, 1]
-                    figure_data['vz' + str(i)][i_dump] = particles.v[i, 2]
-                    figure_data['omegax' + str(i)][i_dump] = particles.angular_v[i, 0]
-                    figure_data['omegay' + str(i)][i_dump] = particles.angular_v[i, 1]
-                    figure_data['omegaz' + str(i)][i_dump] = particles.angular_v[i, 2]
-                i_dump += 1
-            #elif step % 500:
-            #    print(' t = {1:.3f} ({0:.2f}%)'.format(100.0*step/N_t_steps, step*dt))
+        calc_gran_temp(m, d, N_particles, figure_data)
+        fig_gran_temp.plot(
+            figure_data['t']*T_macro_scale,
+            figure_data['gran_temp']/v_scale,
+            'C{0}{1}'.format(
+                compare_to_plot_i,
+                ':' if alpha == 0.0 else '-'
+            ),
+            label='{0} order Var. Int ($\Delta t = {1}$; N={2})'.format(
+                'First' if alpha == 0.0 else 'Second',
+                dt,
+                N_particles,
+            )
+           )
 
-            step += 1
+        #for i in range(20):
+        for i, part_i in enumerate(particles_to_plot):
+            plot_trail(
+                fig_pos_xy,
+                figure_data['x'+str(part_i)].to_numpy(),
+                figure_data['z'+str(part_i)].to_numpy(),
+                'b--',
+                'b{0}'.format(
+                    ':' if alpha == 0.0 else '-',
+                ),
+                label=str(part_i+1))
 
-        figure_data.to_csv(cache_filename)
+            plt.plot([L, L, -L, -L, L], [L_zhi, -L, -L, L_zhi, L_zhi], 'k:')
+            plt.axis('equal')
 
-    compare_to_plot_i = lammps_dts.index(dt)
-    calc_total_kinetic_E(m, d, N_particles, figure_data)
-    fig_K.plot(
-        figure_data['t']*T_macro_scale,
-        (figure_data['K_lin'] + figure_data['K_rot'])/(K_scale*N_particles),
-        'C{0}-'.format(compare_to_plot_i),
-        label='Var. Int. ($\Delta t = {0}$)'.format(dt)
-    )
+            fig_zt.plot(figure_data['t'].to_numpy(),
+                        figure_data['z'+str(part_i)].to_numpy(),
+                        'C{0}{1}'.format(
+                            i,
+                            ':' if alpha == 0.0 else '-'
+                        ))
 
-    calc_gran_temp(m, d, N_particles, figure_data)
-    fig_gran_temp.plot(
-        figure_data['t']*T_macro_scale,
-        figure_data['gran_temp']/v_scale,
-        'C{0}-'.format(compare_to_plot_i),
-        label='Var. Int ($\Delta t = {0}$)'.format(dt)
-    )
+            plt.text(figure_data['t'].to_numpy()[-1],
+                     figure_data['z'+str(part_i)].to_numpy()[-1],
+                     str(part_i+1))
 
-    #for i in range(20):
-    for i, part_i in enumerate(particles_to_plot):
-        plot_trail(
-            fig_pos_xy,
-            figure_data['x'+str(part_i)].to_numpy(),
-            figure_data['z'+str(part_i)].to_numpy(),
-            'b--',
-            'b-',
-            label=str(part_i+1))
-
-        plt.plot([L, L, -L, -L, L], [L_zhi, -L, -L, L_zhi, L_zhi], 'k:')
-        plt.axis('equal')
-
-        fig_zt.plot(figure_data['t'].to_numpy(),
-                    figure_data['z'+str(part_i)].to_numpy(),
-                    'C{0}-'.format(i))
-
-        plt.text(figure_data['t'].to_numpy()[-1],
-                 figure_data['z'+str(part_i)].to_numpy()[-1],
-                 str(part_i+1))
-
-    #for i, t_norm in enumerate([0.5, 0.55, 0.6]):
-    #    t = t_norm * np.sqrt(g/d)
-    #    timestep = int(t/dt_dump + 0.5)
-    #    get_particles(figure_data, particles, timestep)
-    #    save_tikz_cartoon(
-    #        'figures/box{0}.tex'.format(i+1),
-    #        particles,
-    #        #drawvel=True,
-    #        p_scale=np.max(particles.p[:]),
-    #        y_coord_idx=2,
-    #        extra_cmd=['\drawbox']
-    #    )
+        #for i, t_norm in enumerate([0.5, 0.55, 0.6]):
+        #    t = t_norm * np.sqrt(g/d)
+        #    timestep = int(t/dt_dump + 0.5)
+        #    get_particles(figure_data, particles, timestep)
+        #    save_tikz_cartoon(
+        #        'figures/box{0}.tex'.format(i+1),
+        #        particles,
+        #        #drawvel=True,
+        #        p_scale=np.max(particles.p[:]),
+        #        y_coord_idx=2,
+        #        extra_cmd=['\drawbox']
+        #    )
 
 
     if not '--no-show' in sys.argv:

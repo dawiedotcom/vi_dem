@@ -74,7 +74,7 @@ def v_analytic(t, props, v0):
         -v0 * np.cos(t_norm)
     )
 
-def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_properties, v0, color=2, mark='s', label='LAMMPS', dts_only=None):
+def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, err_e_fig, dir_name, particle_properties, v0, color=2, mark='s', label='LAMMPS', dts_only=None):
     files = [fname
         for fname in os.listdir(dir_name)
         if re.match('atom_one.*\.dump', fname)
@@ -84,10 +84,11 @@ def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_prop
         for filename in files
     ]
 
+    columns = ['x_err', 'v_err', 'e_err']
     if dts_only is None:
-        err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=lammps_dts)
+        err_data = pd.DataFrame(0.0, columns=columns, index=lammps_dts)
     else:
-        err_data = pd.DataFrame(0.0, columns=['x_err', 'v_err'], index=dts_only)
+        err_data = pd.DataFrame(0.0, columns=columns, index=dts_only)
 
     T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
     T_scale = np.pi*T_scale2/np.sqrt(2)
@@ -109,18 +110,31 @@ def plot_lammps_data(x_fig, v_fig, err_x_fig, err_v_fig, dir_name, particle_prop
         x_an = -x_analytic(tt, particle_properties, v0)
         v_an = -v_analytic(tt, particle_properties, v0)
         #plt.plot(tt, x_an, 'k--')
+        e_an = (
+            particle_properties.k*(x_an - x_an[0])**2 +
+            0.5*particle_properties.m*v_an**2
+        )
+
+        atom_one_data['E'] = (
+            particle_properties.k*(atom_one_data['x'] - atom_one_data['x'][0])**2 +
+            0.5*particle_properties.m*atom_one_data['vx']**2
+        )
 
         err_data['x_err'][dt] = np.linalg.norm(x_an - atom_one_data['x'])
         err_data['v_err'][dt] = np.linalg.norm(v_an - atom_one_data['vx'])
+        err_data['e_err'][dt] = np.linalg.norm(e_an - atom_one_data['E'])
 
     err_data.sort_index(inplace=True)
     #ic(err_data)
     err_x_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), 'C{0}{1}'.format(color, mark), label=label)
     err_x_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['x_err'].to_numpy(), 'C{0}-'.format(color))
 
-
     err_v_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), 'C{0}{1}'.format(color, mark), label=label)
     err_v_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['v_err'].to_numpy(), 'C{0}-'.format(color))
+
+    err_e_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['e_err'].to_numpy(), 'C{0}{1}'.format(color, mark), label=label)
+    err_e_fig.plot(err_data.index.to_numpy()/T_scale2, err_data['e_err'].to_numpy(), 'C{0}-'.format(color))
+
 
 
 def E_kinetic(particles):
@@ -223,6 +237,7 @@ def main():
 
     fig_x_trunc_err = Figure(t_label, 'Truncation Error |x(t) - x_n|', show=True)
     fig_v_trunc_err = Figure(t_label, 'Truncation Error |v(t) - v_n|', show=True)
+    fig_e_trunc_err = Figure(t_label, 'Truncation Error |E_n/E0 - 1|', show=True)
 
     alphas = [0, 0.5]
     T_scale2 = 1/np.sqrt(particle_properties.k/particle_properties.m)
@@ -232,6 +247,7 @@ def main():
         [T_scale2*dt_ for dt_ in np.geomspace(0.01, 0.2, 15)] +
         [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
     )
+    #dts = dts[0:-1:10]
     dts.sort()
     if '--show-dts' in sys.argv:
         ic(dts)
@@ -241,6 +257,7 @@ def main():
     cols = alphas.copy()
     err_x_df = pd.DataFrame(0.0, columns=cols, index=dts)
     err_v_df = pd.DataFrame(0.0, columns=cols, index=dts)
+    err_e_df = pd.DataFrame(0.0, columns=cols, index=dts)
 
     for i, (gamma_n, dt) in enumerate(params_list):
         ic(dt)
@@ -332,6 +349,27 @@ def main():
                 err = np.linalg.norm( v_an - v_x )
                 err_v_df[alpha][dt] = err
 
+                v = particle_properties.k * (pos_x - particles0.xyz[0, 0])**2
+                k = 0.5 * particle_properties.m * v_x**2 
+                energy = k + v
+                ic(v[:20])
+
+                #E0 = 0.5 * particle_properties.m * v0 ** 2
+                #err = energy/E0 - 1
+                e_an = (
+                    particle_properties.k * (x_an - x_an[0])**2 +
+                    0.5 * particle_properties.m * v_an**2 
+                )
+                #err = e_an - e_an[0]
+                #err = energy - e_an
+                err = energy/energy[0] - 1
+                #fig_e_trunc_err.plot(t_compare,  0.5 * particle_properties.m * v_an**2 + particle_properties.k * (x_an - particles0.xyz[0, 0])**2 - E0, line_style, label=label)
+                #fig_e_trunc_err.plot(t_compare,  v - 0.5 * particle_properties.k * (x_an - particles0.xyz[0, 0])**2, line_style, label=label)
+                #fig_e_trunc_err.plot(t_compare,  k - 0.5 * particle_properties.m * v_an**2, line_style, label=label)
+                if alpha == 0.5:
+                    fig_e_trunc_err.plot(t_compare,  err, line_style, label=label)
+                err_e_df[alpha][dt] = np.linalg.norm( err )
+
     fig_x_err_v_h = Figure(
         '$h/\sqrt{k/m}$',
         '$||x(t_n) - x_n||$',
@@ -348,53 +386,65 @@ def main():
         tikz_filename='figures/impact_analytic_errv.tex',
     )
 
+    fig_e_err_v_h = Figure(
+        '$h/\sqrt{k/m}$',
+        '$||E(t_n)/E0 - 1||$',
+        dat_filename='figures/impact_analytic_erre_{0}.dat',
+        template_filename='figures/semilogy.tex_template',
+        tikz_filename='figures/impact_analytic_erre.tex',
+    )
 
-    h_comp = err_x_df.index.to_numpy()/T_scale2 #* np.sqrt(k/m)
-    ic(h_comp)
 
-    for alpha in alphas:
-        label = 'VI ({0} order)'.format(
-            'First' if alpha == 0.0 else 'Second'
-        )
-        fig_x_err_v_h.plot(
-            h_comp,
-            err_x_df[alpha].to_numpy(),
-            'C0{0}'.format('--' if alpha == 0.0 else '-'),
-        )
-        fig_x_err_v_h.plot(
-            h_comp,
-            err_x_df[alpha].to_numpy(),
-            'C0{0}'.format('+' if alpha == 0.0 else 'o'),
-            label=label,
-        )
+    def do_plot(fig, data):
+        h_comp = data.index.to_numpy()/T_scale2 #* np.sqrt(k/m)
 
-    ax = plt.gca()
-    ax.set_yscale('log')
+        for alpha in alphas:
+            label = 'VI ({0} order)'.format(
+                'First' if alpha == 0.0 else 'Second'
+            )
+            fig.plot(
+                h_comp,
+                data[alpha].to_numpy(),
+                'C0{0}'.format('--' if alpha == 0.0 else '-'),
+            )
+            fig.plot(
+                h_comp,
+                data[alpha].to_numpy(),
+                'C0{0}'.format('+' if alpha == 0.0 else 'o'),
+                label=label,
+            )
 
-    for alpha in alphas:
-        label = 'VI ({0} order)'.format(
-            'First' if alpha == 0.0 else 'Second'
-        )
-        fig_v_err_v_h.plot(
-            h_comp,
-            err_v_df[alpha].to_numpy(),
-            'C0{0}'.format('--' if alpha == 0.0 else '-')
-        )
-        fig_v_err_v_h.plot(
-            h_comp,
-            err_v_df[alpha].to_numpy(),
-            'C0{0}'.format('+' if alpha == 0.0 else 'o'),
-            label=label
-        )
+            ax = plt.gca()
+            ax.set_yscale('log')
 
-    ax = plt.gca()
-    ax.set_yscale('log')
+    do_plot(fig_x_err_v_h, err_x_df)
+    do_plot(fig_v_err_v_h, err_v_df)
+    do_plot(fig_e_err_v_h, err_e_df)
+    #for alpha in alphas:
+    #    label = 'VI ({0} order)'.format(
+    #        'First' if alpha == 0.0 else 'Second'
+    #    )
+    #    fig_v_err_v_h.plot(
+    #        h_comp,
+    #        err_v_df[alpha].to_numpy(),
+    #        'C0{0}'.format('--' if alpha == 0.0 else '-')
+    #    )
+    #    fig_v_err_v_h.plot(
+    #        h_comp,
+    #        err_v_df[alpha].to_numpy(),
+    #        'C0{0}'.format('+' if alpha == 0.0 else 'o'),
+    #        label=label
+    #    )
+
+    #ax = plt.gca()
+    #ax.set_yscale('log')
 
     plot_lammps_data(
         fig_pos_x,
         fig_v_x,
         fig_x_err_v_h,
         fig_v_err_v_h,
+        fig_e_err_v_h,
         'lammps/impact_analytic/dump_verlet',
         #k, m, d, 1.0,
         particle_properties,

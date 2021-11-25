@@ -269,6 +269,8 @@ class Figure:
                 line_spec = ''
             elif '-.' in legend:
                 line_spec = ', dash dot'
+            elif ':' in legend:
+                line_spec = ', dotted'
             else:
                 line_spec = ', only marks, mark={0}'.format(marks[legend[2:]])
             
@@ -312,8 +314,8 @@ def save_tikz_cartoon(filename, particles, drawvel=False, bonds=None, trails=Non
             if drawvel:
                 out.write(r'  \coordinate (p{0}) at ({1}, {2});'.format(
                     i_part,
-                    particles.d/4 * particles.p[i_part, x_coord_idx] / p_scale,
-                    particles.d/4 * particles.p[i_part, y_coord_idx] / p_scale,
+                    particles.d[i_part]/4 * particles.p[i_part, x_coord_idx] / p_scale,
+                    particles.d[i_part]/4 * particles.p[i_part, y_coord_idx] / p_scale,
                 ) + '\n')
                 out.write(r'  \drawvel{pos%i}{p%i}' % (i_part, i_part) + '\n')
 

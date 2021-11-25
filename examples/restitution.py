@@ -60,14 +60,14 @@ def get_lammps_atom_one(dt, gamma_n=None, omegaz=None, theta=None):
 
 
 def append_lammps_pot_e(lmp_atom_one_data, part_props, walls=[]):
-   lmp_atom_one_data['PotEng'] = np.zeros(lmp_atom_one_data['x'].shape)
-   for wall in walls:
-       lmp_xyz = np.array([lmp_atom_one_data['x'],
-                           lmp_atom_one_data['y'],
-                           np.zeros(lmp_atom_one_data['x'].shape)]).transpose()
-       dist_to = wall.dist_to(lmp_xyz)
-       idx = np.where(part_props.d/2 - dist_to > 0)[0]
-       lmp_atom_one_data['PotEng'][idx] += 0.5*part_props.k*(part_props.d/2 - dist_to[idx])**2
+    lmp_atom_one_data['PotEng'] = np.zeros(lmp_atom_one_data['x'].shape)
+    for wall in walls:
+        lmp_xyz = np.array([lmp_atom_one_data['x'],
+                            lmp_atom_one_data['y'],
+                            np.zeros(lmp_atom_one_data['x'].shape)]).transpose()
+        dist_to = wall.dist_to(lmp_xyz)
+        idx = np.where(part_props.d/2 - dist_to > 0)[0]
+        lmp_atom_one_data['PotEng'][idx] += 0.5*part_props.k*(part_props.d/2 - dist_to[idx])**2
 
 
 
@@ -149,16 +149,17 @@ def plot_lammps_err_data(e_fig, err_E_fig, dir_name, particle_properties, color=
     ic(err_data)
 
     err_data.sort_index(inplace=True)
-    err_E_fig.plot(
-        err_data.index.to_numpy()/T_scale2,
-        err_data['E_err'].to_numpy(),
-        'C{0}{1}'.format(color, mark),
-        label=label,
-    )
+    #err_E_fig.plot(
+    #    err_data.index.to_numpy()/T_scale2,
+    #    err_data['E_err'].to_numpy(),
+    #    'C{0}{1}'.format(color, mark),
+    #    label=label,
+    #)
     err_E_fig.plot(
         err_data.index.to_numpy()/T_scale2,
         err_data['E_err'].to_numpy(),
         'C{0}-'.format(color),
+        label=label,
     )
 
 
@@ -277,7 +278,7 @@ def main():
 
     fig_Etot = Figure(
         '$t/t_c$',
-        '$[K(t)+V(t)]/K(0) -1$',
+        '$[E(t_k)]/E(0) -1$',
         dat_filename='figures/restitution_E_{0}.dat' if not do_scaling else '',
         template_filename='figures/impact.tex_template' if not do_scaling else '',
         tikz_filename='figures/restitution_E.tex' if not do_scaling else '',
@@ -290,7 +291,7 @@ def main():
             [T_scale2*dt_ for dt_ in np.linspace(0.2, 1.4, 20)]
         )
     else:
-        dts = [ 0.00001, 0.00005 ]
+        dts = [ 0.00001 ] #, 0.00005 ]
 
     if '--show-dts' in sys.argv:
         print("TIMESTEPS='{0}'".format(' '.join([str(dt) for dt in dts])))
@@ -307,6 +308,8 @@ def main():
     for i, (dt, gamma, omegaz, theta, alpha) in enumerate(params_list):
 
         print('dt = t_c/',T_scale/dt)
+        print('dt = ', dt/T_scale2, 'sqrt{m/k}')
+        exit(0)
 
         if do_scaling:
             plot_idx = np.arange(int(T/dt))
@@ -374,7 +377,7 @@ def main():
 
     fig_err_E = Figure(
         '$h/\sqrt{k/m}$',
-        '$||[K(t)+V(t)]/K(0) -1||$',
+        '$||[E(t_k)]/E(0) -1||$',
         dat_filename='figures/restitution_errE_{0}.dat' if do_scaling else '',
         template_filename='figures/semilogy.tex_template' if do_scaling else '',
         tikz_filename='figures/restitution_errE.tex' if do_scaling else '',
@@ -383,16 +386,17 @@ def main():
         line = '--' if alpha == 0.0 else '-'
         mark = '+' if alpha == 0.0 else 'o'
         label = 'VI ({0} order)'.format('First' if alpha == 0.0 else 'Second')
-        fig_err_E.plot(
-            dts/T_scale2,
-            err_E_df[alpha].to_numpy(),
-            'C0' + mark,
-            label=label
-        )
+        #fig_err_E.plot(
+        #    dts/T_scale2,
+        #    err_E_df[alpha].to_numpy(),
+        #    'C0' + mark,
+        #    label=label
+        #)
         fig_err_E.plot(
             dts/T_scale2,
             err_E_df[alpha].to_numpy(),
             'C0' + line,
+            label=label
         )
 
     plot_lammps_err_data(

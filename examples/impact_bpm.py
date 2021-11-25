@@ -374,12 +374,12 @@ def main():
                     (particles.xyz[0, 1] - particles.xyz[:, 1])**2 +
                     (particles.xyz[0, 2] - particles.xyz[:, 2])**2
                 )
-                f_x[0, j] = hookian_contact.calc_force_ij(particles.xyz[0], particles.xyz[1], 0, 1, 0, d_0[1, j])
-                f_x[1, j] = hookian_contact.calc_force_ij(particles.xyz[0], particles.xyz[2], 0, 2, 0, d_0[2, j])
-                f_x[2, j] = bond_contact.calc_force_ij(particles.xyz[0], particles.xyz[1], 0, 1, 0, d_0[1, j])
-                f_y[0, j] = hookian_contact.calc_force_ij(particles.xyz[0], particles.xyz[1], 0, 1, 1, d_0[1, j])
-                f_y[1, j] = hookian_contact.calc_force_ij(particles.xyz[0], particles.xyz[2], 0, 2, 1, d_0[2, j])
-                f_y[2, j] = bond_contact.calc_force_ij(particles.xyz[0], particles.xyz[1], 0, 1, 1, d_0[1, j])
+                f_x[0, j] = hookian_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[1], 0, 1, 0, d_0[1, j])
+                f_x[1, j] = hookian_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[2], 0, 2, 0, d_0[2, j])
+                f_x[2, j] = bond_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[1], 0, 1, 0, d_0[1, j])
+                f_y[0, j] = hookian_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[1], 0, 1, 1, d_0[1, j])
+                f_y[1, j] = hookian_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[2], 0, 2, 1, d_0[2, j])
+                f_y[2, j] = bond_contact.calc_force_ij(particles.gen_coords[0], particles.gen_coords[1], 0, 1, 1, d_0[1, j])
                 v_x[j] = particles.v[0, 0]
                 v_y[j] = particles.v[0, 1]
 
