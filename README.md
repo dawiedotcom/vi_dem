@@ -9,7 +9,7 @@ Comparisons to LAMMPS can be made by running the `run.sh`
 scripts in subdirectories of the `lammps` folder, provided
 that LAMMPS is installed and available through the `lmp` command.
 The figures can be plotted using LaTeX and pgfplots by running
-`make` in the figures folder.
+`make` in the top level directory.
 
 ## Environment
 

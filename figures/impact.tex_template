@@ -1,0 +1,44 @@
+%-*-Latex-*-
+\documentclass{standalone}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{pgfplots}
+\usepackage{grffile}
+\pgfplotsset{compat=newest}
+\usetikzlibrary{plotmarks}
+\usetikzlibrary{arrows.meta}
+
+\usepgfplotslibrary{colorbrewer}
+%\pgfplotsset{cycle list/Dark2-8}
+\pgfplotsset{cycle list/\VAR{colorscheme}}
+
+\usepgfplotslibrary{patchplots}
+\usepackage{amsmath}
+
+\RequirePackage{luatex85}
+
+
+\begin{document}
+
+\begin{tikzpicture}
+
+  \begin{axis}[%
+      name=MainAxis,
+      width=0.30\textwidth,
+      height=0.30\textwidth,
+      at={(0\textwidth,0\textwidth)},
+      scale only axis,
+      xlabel={\VAR{xlabel}},
+      ylabel={\VAR{ylabel}},
+      %legend pos=outer north east,
+      every axis plot/.append style={very thick},
+  ]
+
+  \BLOCK{ for plot in plots }
+  \VAR{plot}
+  \BLOCK{ endfor }
+
+  \legend{}
+  \end{axis}
+\end{tikzpicture}
+\end{document}
