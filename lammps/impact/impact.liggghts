@@ -1,0 +1,66 @@
+## Initialization
+log             log_${TIMESTEP}.lammps
+
+units           si
+atom_style      sphere
+boundary        f f f
+newton          off
+#communicate     single vel yes
+comm_modify     vel yes
+
+# Declare domain
+region          domain block -2.1 2.1 -2.1 2.1 -2.1 2.1 units box
+create_box      1 domain
+
+# Neighbor listing
+neighbor        0.003 bin
+neigh_modify    every 1 check no
+
+## Setup
+
+# Materials
+#fix             m1 all property/global youngsModulus peratomtype 2.5e7
+#fix             m2 all property/global poissonsRatio peratomtype 0.25
+#fix             m3 all property/global coefficientRestitution peratomtypepair 1 0.5
+#fix             m4 all property/global coefficientFriction peratomtypepair 1 0.5
+#fix             m5 all property/global coefficientRollingFriction peratomtypepair 1 0.1
+
+# Create atoms
+
+create_atoms    1 single -0.52 0 0
+set             atom 1 vx 1
+create_atoms    1 single  0.52 0 0
+set             atom 2 vx -1
+set             atom * density 1.000
+
+
+# Define the physics
+#pair_style      gran model hertz tangential history rolling_friction cdt
+pair_style       gran/hooke 1000000 0 0 0 0 0
+pair_coeff      * *
+
+# Computes
+#compute          contacts all pair/gran/local pos force
+
+# Dump
+dump            dmp all custom 1 lammps_${TIMESTEP}.dump id x vx fx muz omegaz tqz diameter mass
+#dump            dmpmov all movie 1000 movie.avi type type size 640 480
+
+## Detailed Settings
+
+# Integrator
+fix             integrate all nve/sphere
+
+# Time step
+timestep        ${TIMESTEP}
+
+# Thermo dynamic output settings
+thermo_style    custom step cpuremain atoms ke cpu
+thermo          1
+thermo_modify   norm no lost ignore
+
+
+## Execution
+variable        T_END equal 0.15
+variable        N_steps equal ceil(v_T_END/v_TIMESTEP)
+run             ${N_steps}
