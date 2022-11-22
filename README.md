@@ -1,5 +1,11 @@
 # VI DEM
 
+
+
+[![DOI](https://zenodo.org/badge/422213715.svg)](https://zenodo.org/badge/latestdoi/422213715)
+
+
+
 This is the companion code to 
 [A Variational Integrator for the Discrete Element Method](https://arxiv.org/abs/2103.01757).
 
